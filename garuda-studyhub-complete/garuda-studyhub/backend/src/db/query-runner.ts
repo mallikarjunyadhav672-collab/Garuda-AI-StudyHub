@@ -55,9 +55,9 @@ function getConfig() {
   const dbHostValue = pickEnv('DB_HOST', 'MYSQLHOST');
   const dbPortValue = pickEnv('DB_PORT', 'MYSQLPORT');
   const { host, port } = normalizeDbHostAndPort(dbHostValue, dbPortValue);
-  const user = pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'malli';
-  const password = pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '8520';
-  const database = pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'garuda_studyhub';
+  const user = pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'root';
+  const password = pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '';
+  const database = pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'railway';
   const ssl = process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes' || process.env.DB_SSL === 'TRUE';
 
   const config: any = {
