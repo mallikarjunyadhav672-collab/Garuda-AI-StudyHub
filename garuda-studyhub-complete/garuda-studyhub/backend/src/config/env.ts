@@ -47,7 +47,7 @@ const normalizedDb = normalizeDbHostAndPort(dbHostValue, dbPortValue);
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProd: process.env.NODE_ENV === 'production',
-  port: num(process.env.PORT, 5000),
+  port: num(process.env.PORT || process.env.RENDER_PORT || process.env.WEB_PORT, 3000),
   dbClient: process.env.DB_CLIENT || 'mysql',
   dbHost: normalizedDb.host,
   dbPort: normalizedDb.port,
