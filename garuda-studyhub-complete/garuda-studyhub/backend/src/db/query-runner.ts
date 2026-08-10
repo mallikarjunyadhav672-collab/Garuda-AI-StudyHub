@@ -78,6 +78,10 @@ function getConfig() {
   return config;
 }
 
+function writeJson(value: unknown) {
+  process.stdout.write(`${JSON.stringify(value ?? null)}\n`);
+}
+
 async function main() {
   const payload = process.argv[2];
   if (!payload) {
@@ -91,28 +95,28 @@ async function main() {
   try {
     if (mode === 'exec') {
       await connection.query(normalizedSql);
-      process.stdout.write(JSON.stringify({ ok: true }));
+      writeJson({ ok: true });
       return;
     }
 
     const [rows] = await connection.query(normalizedSql, params);
     if (mode === 'get') {
-      process.stdout.write(JSON.stringify(Array.isArray(rows) && rows.length > 0 ? rows[0] : undefined));
+      writeJson(Array.isArray(rows) && rows.length > 0 ? rows[0] : null);
       return;
     }
 
     if (mode === 'all') {
-      process.stdout.write(JSON.stringify(rows));
+      writeJson(rows ?? []);
       return;
     }
 
     if (mode === 'run') {
       const result = rows as any;
-      process.stdout.write(JSON.stringify({
+      writeJson({
         changes: Number(result?.affectedRows ?? 0),
         lastInsertRowid: Number(result?.insertId ?? 0),
         insertId: Number(result?.insertId ?? 0),
-      }));
+      });
       return;
     }
 
