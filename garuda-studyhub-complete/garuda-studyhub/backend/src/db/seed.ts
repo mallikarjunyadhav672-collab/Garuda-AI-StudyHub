@@ -8,7 +8,8 @@ initSchema();
 // Seed all demo content. Safe to call repeatedly — skips if already seeded.
 // ---------------------------------------------------------------------------
 export async function seedAll() {
-  const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
+  const row = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c?: number } | undefined;
+  const count = Number(row?.c ?? 0);
   if (count > 0) {
     console.log('Database already seeded — skipping duplicate seed run.');
     return;
