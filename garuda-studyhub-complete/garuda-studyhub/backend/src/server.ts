@@ -5,7 +5,7 @@ import { ensureDefaultUsers, seedIfEmpty } from './db/bootstrap';
 
 async function start() {
   const port = env.port;
-  const host = process.env.HOST || '0.0.0.0';
+  const host = process.env.NODE_ENV === 'production' || process.env.RENDER ? '0.0.0.0' : (process.env.HOST || '0.0.0.0');
 
   const server = app.listen(port, host, () => {
     const getCount = (table: string) => {
