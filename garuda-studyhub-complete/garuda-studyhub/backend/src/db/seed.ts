@@ -14,16 +14,21 @@ function ensureCategoryId(slug: string): number {
   if (categoryId != null) {
     return categoryId;
   }
+
   throw new Error(`Category slug not found: ${slug}`);
+}
+
+function hasRows(tableName: string): boolean {
+  const row = db.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c?: number } | undefined;
+  return Number(row?.c ?? 0) > 0;
 }
 
 // ---------------------------------------------------------------------------
 // Seed all demo content. Safe to call repeatedly — skips if already seeded.
 // ---------------------------------------------------------------------------
 export async function seedAll() {
-  const row = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c?: number } | undefined;
-  const count = Number(row?.c ?? 0);
-  if (count > 0) {
+  const isSeeded = ['categories', 'jobs', 'materials', 'mock_tests', 'quiz_questions', 'affairs', 'videos'].every((tableName) => hasRows(tableName));
+  if (isSeeded) {
     console.log('Database already seeded — skipping duplicate seed run.');
     return;
   }
@@ -520,12 +525,26 @@ function seedVideos(adminId: number) {
 
 const { adminId } = await seedUsers();
   seedCategories();
-  seedJobs(adminId);
-  seedMaterials(adminId);
-  seedMocks(adminId);
-  seedQuiz();
-  seedAffairs(adminId);
-  seedVideos(adminId);
+
+  if (!hasRows('jobs')) {
+    seedJobs(adminId);
+  }
+  if (!hasRows('materials')) {
+    seedMaterials(adminId);
+  }
+  if (!hasRows('mock_tests')) {
+    seedMocks(adminId);
+  }
+  if (!hasRows('quiz_questions')) {
+    seedQuiz();
+  }
+  if (!hasRows('affairs')) {
+    seedAffairs(adminId);
+  }
+  if (!hasRows('videos')) {
+    seedVideos(adminId);
+  }
+
   console.log('✅ Seed complete!');
   console.log('   └─ Admin: admin@garuda.ai / Admin@123');
 }
