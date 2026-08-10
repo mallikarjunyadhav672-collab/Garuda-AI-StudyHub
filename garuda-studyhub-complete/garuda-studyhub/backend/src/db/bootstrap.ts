@@ -48,7 +48,8 @@ export async function ensureDefaultUsers() {
 /** If the DB has no content at all (fresh install), seed the starter set
  *  automatically so the app is never empty. */
 export async function seedIfEmpty() {
-  const jobs = (prep('SELECT COUNT(*) as c FROM jobs').get() as { c: number }).c;
+  const row = prep('SELECT COUNT(*) as c FROM jobs').get() as { c?: number } | undefined;
+  const jobs = Number(row?.c ?? 0);
   if (jobs > 0) return; // already seeded
   console.log('   └─ Empty database detected — seeding starter content…');
   const { seedAll } = await import('./seed.js');
