@@ -15,13 +15,42 @@ function pickEnv(...names: string[]) {
   return undefined;
 }
 
+function normalizeDbHostAndPort(rawHost: string | undefined, rawPort: string | undefined) {
+  const defaultPort = num(rawPort, 3306);
+  let host = rawHost?.trim();
+
+  if (!host) {
+    return { host: 'localhost', port: defaultPort };
+  }
+
+  const portMatch = host.match(/^(.*?):(\d+)$/);
+  if (portMatch) {
+    host = portMatch[1];
+    const parsedPort = Number(portMatch[2]);
+    return {
+      host,
+      port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : defaultPort,
+    };
+  }
+
+  if (host.endsWith(':')) {
+    host = host.slice(0, -1);
+  }
+
+  return { host, port: defaultPort };
+}
+
+const dbHostValue = pickEnv('DB_HOST', 'MYSQLHOST');
+const dbPortValue = pickEnv('DB_PORT', 'MYSQLPORT');
+const normalizedDb = normalizeDbHostAndPort(dbHostValue, dbPortValue);
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProd: process.env.NODE_ENV === 'production',
   port: num(process.env.PORT, 5000),
   dbClient: process.env.DB_CLIENT || 'mysql',
-  dbHost: pickEnv('DB_HOST', 'MYSQLHOST') || 'localhost',
-  dbPort: num(pickEnv('DB_PORT', 'MYSQLPORT'), 3306),
+  dbHost: normalizedDb.host,
+  dbPort: normalizedDb.port,
   dbName: pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'garuda_studyhub',
   dbUser: pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'malli',
   dbPassword: pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '8520',

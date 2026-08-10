@@ -26,9 +26,35 @@ function pickEnv(...names: string[]) {
   return undefined;
 }
 
+function normalizeDbHostAndPort(rawHost: string | undefined, rawPort: string | undefined) {
+  const defaultPort = Number(rawPort || 3306);
+  let host = rawHost?.trim();
+
+  if (!host) {
+    return { host: 'localhost', port: defaultPort };
+  }
+
+  const portMatch = host.match(/^(.*?):(\d+)$/);
+  if (portMatch) {
+    host = portMatch[1];
+    const parsedPort = Number(portMatch[2]);
+    return {
+      host,
+      port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : defaultPort,
+    };
+  }
+
+  if (host.endsWith(':')) {
+    host = host.slice(0, -1);
+  }
+
+  return { host, port: defaultPort };
+}
+
 function getConfig() {
-  const host = pickEnv('DB_HOST', 'MYSQLHOST') || 'localhost';
-  const port = Number(pickEnv('DB_PORT', 'MYSQLPORT') || 3306);
+  const dbHostValue = pickEnv('DB_HOST', 'MYSQLHOST');
+  const dbPortValue = pickEnv('DB_PORT', 'MYSQLPORT');
+  const { host, port } = normalizeDbHostAndPort(dbHostValue, dbPortValue);
   const user = pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'malli';
   const password = pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '8520';
   const database = pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'garuda_studyhub';
