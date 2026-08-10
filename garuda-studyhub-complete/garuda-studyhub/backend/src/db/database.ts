@@ -1,8 +1,30 @@
 import { env } from '../config/env';
+import mysql from 'mysql2';
+import deasync from 'deasync';
 
-const SyncMySQL = require('sync-mysql');
+// ---------------------------------------------------------------------------
+// Synchronous MySQL driver built on mysql2 (callback API) + deasync.
+//
+// WHY: The previous driver (sync-mysql) depended on sync-rpc, which lazily
+// spawns a child Node.js process (child_process.fork) to run queries
+// synchronously. On Render (and other sandboxed hosters) spawning child
+// processes is blocked, so the app crashed with:
+//     sync-rpc/lib/index.js:171  throw error;
+//
+// This wrapper uses mysql2 (callback API) + deasync (blocks the event loop
+// natively, NO child process). It exposes the SAME synchronous API the rest
+// of the codebase already uses:  db.prepare(sql).get/all/run, db.exec,
+// db.transaction, prep(). No call sites need to change.
+//
+// IMPORTANT: We use the CALLBACK API of mysql2 (not mysql2/promise) because
+// deasync pumps the event loop but does NOT reliably flush native Promise
+// microtasks. The callback API uses process.nextTick/setImmediate which
+// deasync handles correctly.
+// ---------------------------------------------------------------------------
 
-function connectWithRetry() {
+type AnyConn = any;
+
+function connectWithRetry(): AnyConn {
   const maxAttempts = Number(process.env.DB_STARTUP_RETRIES || 15);
   const retryDelayMs = Number(process.env.DB_STARTUP_RETRY_DELAY_MS || 2000);
   let lastError: unknown;
@@ -18,13 +40,32 @@ function connectWithRetry() {
         charset: 'utf8mb4',
         multipleStatements: true,
         timezone: 'Z',
+        // Keep the connection alive so the server process doesn't drop it.
+        enableKeepAlive: true,
+        keepAliveInitialDelay: 0,
       };
 
       if (env.dbSsl) {
         config.ssl = { rejectUnauthorized: false };
       }
 
-      return new SyncMySQL(config);
+      // mysql2.createConnection (callback API) — no native Promise involved.
+      let conn: AnyConn | undefined;
+      let connErr: unknown;
+      deasync((done: () => void) => {
+        conn = mysql.createConnection(config);
+        conn.connect((err: any) => {
+          if (err) {
+            connErr = err;
+            try { conn!.destroy(); } catch { /* ignore */ }
+          }
+          done();
+        });
+      })();
+      if (connErr) throw connErr;
+      if (!conn) throw new Error('Failed to create MySQL connection');
+
+      return conn;
     } catch (error) {
       lastError = error;
       console.error('Database connection failed:', {
@@ -45,6 +86,21 @@ function connectWithRetry() {
   throw lastError;
 }
 
+/** Run an async operation synchronously (blocks the event loop via deasync). */
+function sync<T>(fn: (done: (err: any, result?: T) => void) => void): T {
+  let result: T | undefined;
+  let error: any;
+  deasync((done: () => void) => {
+    fn((err: any, res?: T) => {
+      error = err;
+      result = res;
+      done();
+    });
+  })();
+  if (error) throw error;
+  return result as T;
+}
+
 function normalizeSql(sql: string): string {
   return sql
     .replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT IGNORE INTO')
@@ -62,19 +118,34 @@ function normalizeSql(sql: string): string {
 }
 
 class MySqlCompatStatement {
-  constructor(private readonly sql: string, private readonly conn: any) {}
+  constructor(private readonly sql: string, private readonly conn: AnyConn) {}
 
   get(...params: any[]) {
-    const rows = this.conn.query(normalizeSql(this.sql), params.flat());
+    const rows = sync((done) => {
+      this.conn.query(normalizeSql(this.sql), params.flat(), (err: any, rows: any) => {
+        if (err) return done(err);
+        done(null, rows);
+      });
+    });
     return Array.isArray(rows) && rows.length > 0 ? rows[0] : undefined;
   }
 
   all(...params: any[]) {
-    return this.conn.query(normalizeSql(this.sql), params.flat());
+    return sync((done) => {
+      this.conn.query(normalizeSql(this.sql), params.flat(), (err: any, rows: any) => {
+        if (err) return done(err);
+        done(null, rows);
+      });
+    });
   }
 
   run(...params: any[]) {
-    const result = this.conn.query(normalizeSql(this.sql), params.flat());
+    const result: any = sync((done) => {
+      this.conn.query(normalizeSql(this.sql), params.flat(), (err: any, res: any) => {
+        if (err) return done(err);
+        done(null, res);
+      });
+    });
     if (result && typeof result === 'object' && 'affectedRows' in result) {
       return {
         changes: Number(result.affectedRows ?? 0),
@@ -94,13 +165,38 @@ function openDatabase(): any {
       return new MySqlCompatStatement(sql, conn);
     },
     exec(sql: string) {
-      conn.query(normalizeSql(sql));
+      sync((done) => {
+        conn.query(normalizeSql(sql), (err: any) => {
+          if (err) return done(err);
+          done(null);
+        });
+      });
     },
     pragma() {
       return this;
     },
+    transaction(fn: () => void) {
+      return () => {
+        sync((done) => {
+          conn.beginTransaction((err: any) => (err ? done(err) : done(null)));
+        });
+        try {
+          fn();
+          sync((done) => {
+            conn.commit((err: any) => (err ? done(err) : done(null)));
+          });
+        } catch (e) {
+          sync((done) => {
+            conn.rollback((err: any) => (err ? done(err) : done(null)));
+          });
+          throw e;
+        }
+      };
+    },
     close() {
-      conn.end();
+      sync((done) => {
+        conn.end((err: any) => (err ? done(err) : done(null)));
+      });
     },
   };
 }

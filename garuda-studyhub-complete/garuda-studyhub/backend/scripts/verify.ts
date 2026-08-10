@@ -25,10 +25,10 @@ else fail('Node < 20 — please upgrade Node.js');
 // 2. MySQL driver
 console.log('\n[2] MySQL driver');
 try {
-  require('sync-mysql');
-  pass('sync-mysql available');
+  require('mysql2/promise');
+  pass('mysql2 available');
 } catch {
-  fail('sync-mysql not installed — run: npm install');
+  fail('mysql2 not installed — run: npm install');
 }
 
 // 3. Database connection
