@@ -48,7 +48,7 @@ let refreshing: Promise<string> | null = null;
 async function refreshAccessToken(): Promise<string> {
   const refreshToken = storage.getRefresh();
   if (!refreshToken) throw new Error('no refresh token');
-  const { data } = await axios.post('/auth/refresh', { refreshToken });
+  const { data } = await api.post('/auth/refresh', { refreshToken });
   const { accessToken, refreshToken: newRefresh, user } = data.data;
   storage.setSession(user, accessToken, newRefresh);
   return accessToken;
