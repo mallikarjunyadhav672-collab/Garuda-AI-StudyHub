@@ -16,13 +16,23 @@ function normalizeSql(sql: string): string {
     .replace(/\s*;\s*$/g, '');
 }
 
+function pickEnv(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value && value.trim() !== '') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 function getConfig() {
-  const host = process.env.DB_HOST || 'localhost';
-  const port = Number(process.env.DB_PORT || 3306);
-  const user = process.env.DB_USER || 'malli';
-  const password = process.env.DB_PASSWORD || '8520';
-  const database = process.env.DB_NAME || 'garuda_studyhub';
-  const ssl = process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes';
+  const host = pickEnv('DB_HOST', 'MYSQLHOST') || 'localhost';
+  const port = Number(pickEnv('DB_PORT', 'MYSQLPORT') || 3306);
+  const user = pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'malli';
+  const password = pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '8520';
+  const database = pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'garuda_studyhub';
+  const ssl = process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes' || process.env.DB_SSL === 'TRUE';
 
   const config: any = {
     host,
@@ -89,5 +99,11 @@ async function main() {
 main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(message);
+  if (error instanceof Error && 'cause' in error) {
+    const cause = (error as Error & { cause?: unknown }).cause;
+    if (cause) {
+      console.error(cause);
+    }
+  }
   process.exit(1);
 });

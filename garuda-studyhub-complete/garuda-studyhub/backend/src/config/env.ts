@@ -5,17 +5,27 @@ function num(v: string | undefined, fallback: number) {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+function pickEnv(...names: string[]) {
+  for (const name of names) {
+    const value = process.env[name];
+    if (value && value.trim() !== '') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isProd: process.env.NODE_ENV === 'production',
   port: num(process.env.PORT, 5000),
   dbClient: process.env.DB_CLIENT || 'mysql',
-  dbHost: process.env.DB_HOST || 'localhost',
-  dbPort: num(process.env.DB_PORT, 3306),
-  dbName: process.env.DB_NAME || 'garuda_studyhub',
-  dbUser: process.env.DB_USER || 'malli',
-  dbPassword: process.env.DB_PASSWORD || '8520',
-  dbSsl: process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes',
+  dbHost: pickEnv('DB_HOST', 'MYSQLHOST') || 'localhost',
+  dbPort: num(pickEnv('DB_PORT', 'MYSQLPORT'), 3306),
+  dbName: pickEnv('DB_NAME', 'MYSQLDATABASE', 'MYSQL_DB') || 'garuda_studyhub',
+  dbUser: pickEnv('DB_USER', 'MYSQLUSER', 'MYSQL_USERNAME') || 'malli',
+  dbPassword: pickEnv('DB_PASSWORD', 'MYSQLPASSWORD', 'MYSQL_PWD') || '8520',
+  dbSsl: process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes' || process.env.DB_SSL === 'TRUE',
   dbPath: process.env.DB_PATH || './data/garuda.db',
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
