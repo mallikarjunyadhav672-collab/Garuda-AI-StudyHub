@@ -9,15 +9,6 @@ function getCategoryId(slug: string): number | undefined {
   return row?.id != null ? Number(row.id) : undefined;
 }
 
-function ensureCategoryId(slug: string): number {
-  const categoryId = getCategoryId(slug);
-  if (categoryId != null) {
-    return categoryId;
-  }
-
-  throw new Error(`Category slug not found: ${slug}`);
-}
-
 function hasRows(tableName: string): boolean {
   const row = db.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c?: number } | undefined;
   return Number(row?.c ?? 0) > 0;
@@ -34,6 +25,36 @@ export async function seedAll() {
   }
 
   console.log('🌱 Seeding Garuda AI StudyHub...');
+  seedCategories();
+
+  function ensureCategoryId(slug: string): number {
+    const categoryId = getCategoryId(slug);
+    if (categoryId != null) {
+      return categoryId;
+    }
+
+    seedCategories();
+
+    const fallbackCategoryId = getCategoryId(slug);
+    if (fallbackCategoryId != null) {
+      return fallbackCategoryId;
+    }
+
+    const fallbackName = slug
+      .split('-')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    const info = db.prepare(
+      `INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, 'default', ?, 'tag', 9999)`
+    ).run(fallbackName, slug, `Auto-created category for ${slug}`);
+
+    const insertedId = Number(info.lastInsertRowid ?? 0);
+    if (insertedId > 0) {
+      return insertedId;
+    }
+
+    throw new Error(`Category slug not found: ${slug}`);
+  }
 
 // ---------------------------------------------------------------------------
 // Users
@@ -524,7 +545,6 @@ function seedVideos(adminId: number) {
 }
 
 const { adminId } = await seedUsers();
-  seedCategories();
 
   if (!hasRows('jobs')) {
     seedJobs(adminId);
