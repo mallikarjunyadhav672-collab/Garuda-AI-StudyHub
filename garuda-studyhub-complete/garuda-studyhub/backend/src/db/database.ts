@@ -155,13 +155,20 @@ export function prep(sql: string): any {
 }
 
 function ensureIndex(indexName: string, tableName: string, columns: string) {
-  const exists = prep(
-    `SELECT 1 FROM information_schema.statistics
-     WHERE table_schema = ? AND table_name = ? AND index_name = ? LIMIT 1`
-  ).get(env.dbName, tableName, indexName);
+  try {
+    const exists = prep(
+      `SELECT 1 FROM information_schema.statistics
+       WHERE table_schema = ? AND table_name = ? AND index_name = ? LIMIT 1`
+    ).get(env.dbName, tableName, indexName);
 
-  if (!exists) {
-    db.exec(`CREATE INDEX ${indexName} ON ${tableName} (${columns})`);
+    if (!exists) {
+      db.exec(`CREATE INDEX ${indexName} ON ${tableName} (${columns})`);
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.toLowerCase().includes('duplicate') && !message.toLowerCase().includes('already exists')) {
+      throw error;
+    }
   }
 }
 
