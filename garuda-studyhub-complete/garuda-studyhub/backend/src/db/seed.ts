@@ -150,10 +150,6 @@ function seedCategories() {
     const existingRows = selectStmt.all(slug) as Array<{ id: number }>;
     const targetId = existingRows[0]?.id;
 
-    if (existingRows.length > 1 && targetId != null) {
-      db.prepare('DELETE FROM categories WHERE slug = ? AND id <> ?').run(slug, targetId);
-    }
-
     if (targetId != null) {
       updateStmt.run(name, type, description, icon, i, targetId);
     } else {
