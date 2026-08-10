@@ -27,6 +27,14 @@ function connectWithRetry() {
       return new SyncMySQL(config);
     } catch (error) {
       lastError = error;
+      console.error('Database connection failed:', {
+        host: env.dbHost,
+        port: env.dbPort,
+        database: env.dbName,
+        user: env.dbUser,
+        ssl: env.dbSsl,
+        error,
+      });
       if (attempt < maxAttempts) {
         console.warn(`Database unavailable (attempt ${attempt}/${maxAttempts}); retrying in ${retryDelayMs}ms...`);
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, retryDelayMs);
