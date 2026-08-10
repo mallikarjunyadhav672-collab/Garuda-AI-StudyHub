@@ -4,6 +4,19 @@ import { db, initSchema } from './database';
 
 initSchema();
 
+function getCategoryId(slug: string): number | undefined {
+  const row = db.prepare('SELECT id FROM categories WHERE slug = ? ORDER BY id LIMIT 1').get(slug) as { id?: number } | undefined;
+  return row?.id != null ? Number(row.id) : undefined;
+}
+
+function ensureCategoryId(slug: string): number {
+  const categoryId = getCategoryId(slug);
+  if (categoryId != null) {
+    return categoryId;
+  }
+  throw new Error(`Category slug not found: ${slug}`);
+}
+
 // ---------------------------------------------------------------------------
 // Seed all demo content. Safe to call repeatedly — skips if already seeded.
 // ---------------------------------------------------------------------------
@@ -82,30 +95,45 @@ function seedCategories() {
     ['Police & Defence', 'police-defence', 'job', 'Police, Army & paramilitary', 'shield'],
     ['Teaching', 'teaching', 'job', 'CTET, TET & teacher recruitment', 'graduation-cap'],
     ['UPSC', 'upsc', 'job', 'Civil services & central services', 'scroll'],
-
+    
     ['Quantitative Aptitude', 'quant', 'material', 'Maths & numerical ability', 'calculator'],
     ['Reasoning', 'reasoning', 'material', 'Logical & analytical reasoning', 'brain'],
     ['English', 'english', 'material', 'English language & comprehension', 'book-open'],
     ['General Awareness', 'general-awareness', 'material', 'GK, current affairs & static knowledge', 'newspaper'],
-
+    
     ['Full Length', 'full-length', 'mock', 'Complete exam pattern mocks', 'timer'],
     ['Sectional', 'sectional', 'mock', 'Section-wise practice tests', 'layers'],
     ['Topic', 'topic', 'mock', 'Topic-specific mini tests', 'target'],
-
+    
     ['National', 'national', 'affair', 'National current affairs', 'flag'],
     ['International', 'international', 'affair', 'World current affairs', 'globe'],
     ['Economy', 'economy', 'affair', 'Economy & banking news', 'trending-up'],
     ['Sports', 'sports', 'affair', 'Sports news & awards', 'trophy'],
     ['Science & Tech', 'science-tech', 'affair', 'Science, tech & space', 'rocket'],
-
+    
     ['Concept Lectures', 'concept-lectures', 'video', 'Subject concept videos', 'play'],
     ['Current Affairs', 'affairs-videos', 'video', 'Daily news analysis videos', 'radio'],
     ['Mock Analysis', 'mock-analysis', 'video', 'Mock test discussion videos', 'bar-chart'],
   ];
-  const stmt = db.prepare(
-    `INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)`
-  );
-  cats.forEach((c, i) => stmt.run(...c, i));
+  const selectStmt = db.prepare('SELECT id FROM categories WHERE slug = ? ORDER BY id');
+  const insertStmt = db.prepare(`INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)`);
+  const updateStmt = db.prepare(`UPDATE categories SET name = ?, type = ?, description = ?, icon = ?, sort_order = ? WHERE id = ?`);
+
+  cats.forEach((c, i) => {
+    const [name, slug, type, description, icon] = c;
+    const existingRows = selectStmt.all(slug) as Array<{ id: number }>;
+    const targetId = existingRows[0]?.id;
+
+    if (existingRows.length > 1 && targetId != null) {
+      db.prepare('DELETE FROM categories WHERE slug = ? AND id <> ?').run(slug, targetId);
+    }
+
+    if (targetId != null) {
+      updateStmt.run(name, type, description, icon, i, targetId);
+    } else {
+      insertStmt.run(name, slug, type, description, icon, i);
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -251,11 +279,12 @@ function seedJobs(adminId: number) {
     `INSERT INTO jobs (org, role, exam, posts, last_date, qualification, location, salary, category_id,
       department, state, job_type, status, featured, trend, age_limit, application_fee, selection_process,
       eligibility, description, notice_url, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, (SELECT id FROM categories WHERE slug = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   for (const j of jobs) {
+    const categoryId = ensureCategoryId(j.category);
     stmt.run(j.org, j.role, j.exam, j.posts, j.lastDate, j.qualification, j.location, j.salary,
-      j.category, j.department, j.state, j.jobType, j.status, j.featured, j.trend, j.ageLimit,
+      categoryId, j.department, j.state, j.jobType, j.status, j.featured, j.trend, j.ageLimit,
       j.applicationFee, JSON.stringify(j.selectionProcess), JSON.stringify(j.eligibility),
       j.description, j.noticeUrl, adminId);
   }
@@ -277,10 +306,11 @@ function seedMaterials(adminId: number) {
   ];
   const stmt = db.prepare(
     `INSERT INTO materials (title, description, category_id, exam, pages, file_size, file_type, tags, uploaded_by, downloads, rating, rating_count)
-     VALUES (?, ?, (SELECT id FROM categories WHERE slug = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   mats.forEach((m, i) => {
-    stmt.run(m[0], m[1], m[2], m[3], m[4], (Number(m[5])) * 1024 * 1024, m[6], JSON.stringify(m[7]), adminId, 1200 - i * 130, 4.5 + (i % 4) * 0.1, 200 + i * 30);
+    const categoryId = ensureCategoryId(String(m[2]));
+    stmt.run(m[0], m[1], categoryId, m[3], m[4], (Number(m[5])) * 1024 * 1024, m[6], JSON.stringify(m[7]), adminId, 1200 - i * 130, 4.5 + (i % 4) * 0.1, 200 + i * 30);
   });
 }
 
@@ -390,11 +420,12 @@ function seedMocks(adminId: number) {
   ];
 
   for (const t of tests) {
+    const categoryId = ensureCategoryId(t.category);
     const info = db.prepare(
       `INSERT INTO mock_tests (title, type, exam, category_id, total_questions, duration, total_marks,
         negative_marking, is_live, difficulty, instructions, is_published, created_by)
-       VALUES (?, ?, ?, (SELECT id FROM categories WHERE slug = ?), ?, ?, ?, ?, ?, ?, ?, 1, ?)`
-    ).run(t.title, t.type, t.exam, t.category, t.questions.length, t.duration,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
+    ).run(t.title, t.type, t.exam, categoryId, t.questions.length, t.duration,
       t.questions.reduce((a: number, x: any) => a + x.marks, 0), t.negativeMarking,
       t.isLive, t.difficulty, t.instructions, adminId);
     const testId = Number(info.lastInsertRowid);
@@ -457,9 +488,12 @@ function seedAffairs(adminId: number) {
   ];
   const stmt = db.prepare(
     `INSERT INTO affairs (title, summary, content, category_id, date, tags, image_color, source, source_url, is_featured, created_by)
-     VALUES (?, ?, ?, (SELECT id FROM categories WHERE slug = ?), ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  affairs.forEach((a) => stmt.run(a[0], a[1], a[2], a[3], a[4], JSON.stringify(a[5]), a[6], a[7], a[8], a[9], adminId));
+  affairs.forEach((a) => {
+    const categoryId = ensureCategoryId(String(a[3]));
+    stmt.run(a[0], a[1], a[2], categoryId, a[4], JSON.stringify(a[5]), a[6], a[7], a[8], a[9], adminId);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -476,10 +510,11 @@ function seedVideos(adminId: number) {
   ];
   const stmt = db.prepare(
     `INSERT INTO videos (title, description, category_id, playlist, video_url, thumbnail_color, duration, educator, exam, views, likes, tags, created_by)
-     VALUES (?, ?, (SELECT id FROM categories WHERE slug = ?), ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   for (const v of videos) {
-    stmt.run(v.title, v.desc, v.slug, v.playlist, v.color, v.duration, 'Garuda Faculty', v.exam, v.views, v.likes, JSON.stringify(v.tags), adminId);
+    const categoryId = ensureCategoryId(v.slug);
+    stmt.run(v.title, v.desc, categoryId, v.playlist, v.color, v.duration, 'Garuda Faculty', v.exam, v.views, v.likes, JSON.stringify(v.tags), adminId);
   }
 }
 
