@@ -16,13 +16,10 @@ export async function ensureDefaultUsers() {
     examTarget: string,
     isPremium = 0
   ) => {
-    const existing = prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(email);
-    if (existing) return;
-
     const passwordHash = await bcrypt.hash(password, 12);
 
     if (role === 'admin') {
-      const existingAdmin = prep(`SELECT * FROM users WHERE role = 'admin' OR role = 'superadmin' LIMIT 1`).get();
+      const existingAdmin = prep(`SELECT * FROM users WHERE role = 'admin' OR role = 'superadmin' LIMIT 1`).get() as { id: number } | undefined;
       if (existingAdmin) {
         prep(
           `UPDATE users SET name = ?, email = ?, phone = ?, password_hash = ?, exam_target = ?, is_verified = 1, is_premium = ? WHERE id = ?`
@@ -35,11 +32,21 @@ export async function ensureDefaultUsers() {
 
     const info = prep(
       `INSERT INTO users (name, email, phone, password_hash, role, exam_target, is_verified, is_premium)
-       VALUES (?, ?, ?, ?, ?, ?, 1, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         phone = VALUES(phone),
+         password_hash = VALUES(password_hash),
+         role = VALUES(role),
+         exam_target = VALUES(exam_target),
+         is_verified = 1,
+         is_premium = VALUES(is_premium)`
     ).run(name, email, null, passwordHash, role, examTarget, isPremium);
-    const userId = Number(info.lastInsertRowid);
-    prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
-    console.log(`   └─ Created default ${role} account: ${email}`);
+    const userId = Number(info.lastInsertRowid || 0);
+    if (userId > 0) {
+      prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
+    }
+    console.log(`   └─ Ensured default ${role} account: ${email}`);
   };
 
   await ensure('admin@garuda.ai', 'Admin Garuda', 'Admin@123', 'admin', 'SSC CGL', 1);
