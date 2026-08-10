@@ -1,0 +1,80 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+import path from 'node:path';
+import fs from 'node:fs';
+import { env } from './config/env';
+import { db } from './db/database';
+import routes from './routes';
+import { errorHandler, notFound } from './middleware/error';
+
+const app = express();
+
+// Trust the preview proxy so rate limiting works correctly behind it
+app.set('trust proxy', 1);
+
+// Security headers
+app.use(helmet({ contentSecurityPolicy: false }));
+
+// CORS — allow configured frontend origins (plus preview origin when present)
+const allowedOrigins = [...env.frontendUrls];
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
+      // Allow sandbox preview hosts like https://5173-xxxx.e2b.app
+      if (/^https:\/\/\d+-[a-z0-9]+\.e2b\.app$/.test(origin)) return cb(null, true);
+      return cb(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+  })
+);
+
+app.use(express.json({ limit: '1mb' }));
+app.use(morgan(env.isProd ? 'combined' : 'dev'));
+
+// Serve uploaded files (avatars, materials, notices)
+const uploadsDir = path.resolve(process.cwd(), 'uploads');
+fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(uploadsDir, { maxAge: env.isProd ? '7d' : 0 }));
+
+// Rate limiting
+const generalLimiter = rateLimit({ windowMs: 60_000, limit: 300, standardHeaders: true });
+const authLimiter = rateLimit({
+  windowMs: 15 * 60_000,
+  limit: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => req.path === '/login',
+});
+app.use('/api/auth', authLimiter);
+app.use('/api', generalLimiter);
+
+// Health check — includes live database status
+app.get('/api/health', async (_req, res) => {
+  let dbStatus: any = { connected: false };
+  try {
+    const tables = (await db.prepare('SELECT COUNT(*) as c FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE()').get()) as { c: number };
+    const users = (await db.prepare('SELECT COUNT(*) as c FROM users').get()) as { c: number };
+    dbStatus = { connected: true, tables: Number(tables?.c ?? 0), users: Number(users?.c ?? 0) };
+  } catch (e: any) {
+    dbStatus = { connected: false, error: e.message };
+  }
+  res.json({
+    status: 'ok',
+    version: '1.0.0',
+    service: 'Garuda AI StudyHub API',
+    database: dbStatus,
+    time: new Date().toISOString(),
+  });
+});
+
+app.use('/api', routes);
+
+// 404 + error handler
+app.use(notFound);
+app.use(errorHandler);
+
+export default app;

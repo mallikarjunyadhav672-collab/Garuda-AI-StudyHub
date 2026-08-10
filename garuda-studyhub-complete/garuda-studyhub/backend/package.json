@@ -1,0 +1,47 @@
+{
+  "name": "garuda-studyhub-backend",
+  "version": "1.0.0",
+  "description": "Garuda AI StudyHub - Production API (Express + TypeScript + SQLite)",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node --disable-warning=ExperimentalWarning dist/server.js",
+    "seed": "tsx src/db/seed.ts",
+    "verify": "tsx scripts/verify.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "deasync": "^0.1.31",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "multer": "^2.2.0",
+    "mysql2": "^3.23.2",
+    "nodemailer": "^9.0.5",
+    "sync-mysql": "^3.0.1",
+    "zod": "^3.23.8"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.4.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.6",
+    "@types/morgan": "^1.9.9",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^20.14.0",
+    "@types/nodemailer": "^6.1.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.3"
+  }
+}

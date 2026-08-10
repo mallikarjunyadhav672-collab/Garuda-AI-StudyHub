@@ -1,0 +1,52 @@
+# Render.com blueprint — push this repo and Render provisions both services.
+services:
+  - type: web
+    name: garuda-studyhub-api
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: DB_CLIENT
+        value: mysql
+      - key: DB_HOST
+        value: your-mysql-host
+      - key: DB_PORT
+        value: 3306
+      - key: DB_NAME
+        value: garuda_studyhub
+      - key: DB_USER
+        value: your-db-user
+      - key: DB_PASSWORD
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://garuda-studyhub.onrender.com
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: web
+    name: garuda-studyhub-web
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    headers:
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+      - type: proxy
+        source: /api/*
+        destination: https://garuda-studyhub-api.onrender.com

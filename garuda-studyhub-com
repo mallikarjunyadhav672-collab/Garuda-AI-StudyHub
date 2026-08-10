@@ -1,0 +1,15 @@
+import fs from 'node:fs';
+
+// Test frontend serves the app
+const appRes = await fetch('http://localhost:5173/');
+const appHtml = await appRes.text();
+fs.writeFileSync('frontend-check.txt', `APP_STATUS:${appRes.status}\nHAS_ROOT:${appHtml.includes('id="root"')}\n`);
+
+// Test frontend proxy -> backend /api/health
+try {
+  const healthRes = await fetch('http://localhost:5173/api/health');
+  const health = await healthRes.json();
+  fs.appendFileSync('frontend-check.txt', `PROXY_HEALTH:${healthRes.status} DB_CONNECTED:${health.database?.connected} TABLES:${health.database?.tables}\n`);
+} catch (e) {
+  fs.appendFileSync('frontend-check.txt', `PROXY_ERROR:${e.message}\n`);
+}

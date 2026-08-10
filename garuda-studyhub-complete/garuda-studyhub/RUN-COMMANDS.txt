@@ -1,0 +1,114 @@
+============================================================
+  GARUDA AI STUDYHUB - MANUAL COMMAND GUIDE (WINDOWS)
+============================================================
+
+INSTRUCTIONS: ee commands ni Command Prompt (cmd) lo copy-paste cheyyi.
+Rendu (2) command windows kavali - oka backend ki, oka frontend ki.
+
+------------------------------------------------------------
+STEP 0: Folder location
+------------------------------------------------------------
+Zip ni extract chesina folder path gurthupettuko.
+Example: C:\GarudaStudyHub
+
+(Meedi entha aithe adi use cheyyi. Ikkada example ga C:\GarudaStudyHub
+pettaanu.)
+
+------------------------------------------------------------
+STEP 1: BACKEND install + start  (WINDOW #1)
+------------------------------------------------------------
+Open Command Prompt:
+  Start menu lo "cmd" ani type cheyyi -> Enter
+
+Ee commands copy-paste cheyyi:
+
+  cd C:\GarudaStudyHub\backend
+
+  npm install
+
+  npm run dev
+
+Expected output (last line):
+  Database: SQLite (9 users · 12 jobs)
+  Admin login: admin@garuda.ai / Admin@123
+
+Adi vasthe backend ready. Ii window tho pani ledu - open ga vadileyyi.
+
+------------------------------------------------------------
+STEP 2: FRONTEND install + start  (WINDOW #2)
+------------------------------------------------------------
+Rendu kotha Command Prompt open cheyyi (Start -> cmd -> Enter)
+
+Ee commands copy-paste cheyyi:
+
+  cd C:\GarudaStudyHub\frontend
+
+  npm install
+
+  npm run dev
+
+Expected output (last line):
+  VITE v6.4.3 ready
+  Local: http://localhost:5173/
+
+------------------------------------------------------------
+STEP 3: BROWSER lo open cheyyi
+------------------------------------------------------------
+Chrome/Edge open cheyyi -> address bar lo type cheyyi:
+
+  http://localhost:5173
+
+Enter click. Garuda StudyHub landing page open avutundi.
+
+------------------------------------------------------------
+STEP 4: LOGIN
+------------------------------------------------------------
+Top right lo "Sign in" click cheyyi.
+
+  Admin : admin@garuda.ai  /  Admin@123
+  Demo  : demo@garuda.ai   /  Demo@123
+
+Login ayina taruvata dashboard vastundi.
+Left sidebar lo "Admin Panel" -> click -> admin dashboard.
+
+------------------------------------------------------------
+VERIFY (optional - edaina doubt vasthe)
+------------------------------------------------------------
+Backend window lo Ctrl+C press cheyyi (server stop avutundi),
+taruvata ee command:
+
+  npm run verify
+
+Anni green ✅ kanipistayi:
+  - Node OK
+  - Database CONNECTED (23 tables, 9 users)
+  - Admin login works
+  - No duplicate records
+
+------------------------------------------------------------
+STOP servers
+------------------------------------------------------------
+Prathi window lo Ctrl+C press cheyyi.
+
+------------------------------------------------------------
+FIRST TIME ONLY notes
+------------------------------------------------------------
+- npm install first time konni minutes pattuddi - wait cheyyi.
+- Error vasthe: antivirus temporarily off cheyyi + VS Code close cheyyi,
+  taruvata npm install malli run cheyyi.
+- Database auto-create avutundi - npm run seed AVASARAM LEDU.
+  (Server boot ayyetappudu admin/demo accounts + content automatic ga
+   create avutayi.)
+
+------------------------------------------------------------
+QUICK CHECK - server pani chestundo ledo
+------------------------------------------------------------
+Browser lo ee URL open cheyyi:
+
+  http://localhost:5173/api/health
+
+Kanipisthe:
+  {"status":"ok",...,"database":{"connected":true,"tables":23,"users":9}}
+
+Adi = frontend + backend + database anni connect ayayi.
+============================================================

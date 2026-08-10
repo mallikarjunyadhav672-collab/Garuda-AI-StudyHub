@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# builds
+dist/
+build/
+out/
+
+# database (recreate with: npm run seed)
+backend/data/*.db
+backend/data/*.db-*
+
+# uploads (runtime)
+backend/uploads/
+
+# env
+.env
+.env.local
+
+# logs
+*.log
+npm-debug.log*
+
+# editor
+.vscode/
+.idea/
+.DS_Store

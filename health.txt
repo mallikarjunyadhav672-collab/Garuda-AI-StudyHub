@@ -1,0 +1,11 @@
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "service": "Garuda AI StudyHub API",
+  "database": {
+    "connected": true,
+    "tables": 22,
+    "users": 8
+  },
+  "time": "2026-08-08T17:49:53.182Z"
+}
