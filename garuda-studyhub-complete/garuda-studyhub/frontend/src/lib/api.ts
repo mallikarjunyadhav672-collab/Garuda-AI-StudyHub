@@ -26,8 +26,11 @@ export const storage = {
   },
 };
 
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, '');
+
 export const api = axios.create({
-  baseURL: '/api', // proxied by Vite dev server -> backend
+  baseURL: normalizedApiBaseUrl || '/api',
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -45,7 +48,7 @@ let refreshing: Promise<string> | null = null;
 async function refreshAccessToken(): Promise<string> {
   const refreshToken = storage.getRefresh();
   if (!refreshToken) throw new Error('no refresh token');
-  const { data } = await axios.post('/api/auth/refresh', { refreshToken });
+  const { data } = await axios.post('/auth/refresh', { refreshToken });
   const { accessToken, refreshToken: newRefresh, user } = data.data;
   storage.setSession(user, accessToken, newRefresh);
   return accessToken;

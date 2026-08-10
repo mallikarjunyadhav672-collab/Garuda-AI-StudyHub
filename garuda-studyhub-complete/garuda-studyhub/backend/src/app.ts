@@ -26,6 +26,8 @@ app.use(
       if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
       // Allow sandbox preview hosts like https://5173-xxxx.e2b.app
       if (/^https:\/\/\d+-[a-z0-9]+\.e2b\.app$/.test(origin)) return cb(null, true);
+      // Allow Vercel deployment hosts (production + preview)
+      if (/^https:\/\/([a-z0-9-]+\.)*vercel\.app$/.test(origin) || /^https:\/\/([a-z0-9-]+\.)*vercel\.dev$/.test(origin)) return cb(null, true);
       return cb(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
