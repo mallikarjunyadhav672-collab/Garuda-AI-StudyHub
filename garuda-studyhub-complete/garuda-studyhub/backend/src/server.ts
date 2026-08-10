@@ -8,8 +8,17 @@ async function start() {
   const host = process.env.HOST || '0.0.0.0';
 
   const server = app.listen(port, host, () => {
-    const users = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
-    const jobs = (db.prepare('SELECT COUNT(*) as c FROM jobs').get() as { c: number }).c;
+    const getCount = (table: string) => {
+      try {
+        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as { c?: number } | undefined;
+        return Number(row?.c ?? 0);
+      } catch {
+        return 0;
+      }
+    };
+
+    const users = getCount('users');
+    const jobs = getCount('jobs');
     console.log(`\n🦅 Garuda AI StudyHub API`);
     console.log(`   └─ http://localhost:${port}/api/health`);
     console.log(`   └─ Database: MySQL (${users} users · ${jobs} jobs)`);
