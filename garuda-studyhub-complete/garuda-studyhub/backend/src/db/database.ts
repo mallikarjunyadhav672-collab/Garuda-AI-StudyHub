@@ -9,7 +9,7 @@ function connectWithRetry() {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return new SyncMySQL({
+      const config: any = {
         host: env.dbHost,
         port: env.dbPort,
         user: env.dbUser,
@@ -18,7 +18,13 @@ function connectWithRetry() {
         charset: 'utf8mb4',
         multipleStatements: true,
         timezone: 'Z',
-      });
+      };
+
+      if (env.dbSsl) {
+        config.ssl = { rejectUnauthorized: false };
+      }
+
+      return new SyncMySQL(config);
     } catch (error) {
       lastError = error;
       if (attempt < maxAttempts) {

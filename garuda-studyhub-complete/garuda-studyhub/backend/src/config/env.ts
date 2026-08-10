@@ -15,6 +15,7 @@ export const env = {
   dbName: process.env.DB_NAME || 'garuda_studyhub',
   dbUser: process.env.DB_USER || 'malli',
   dbPassword: process.env.DB_PASSWORD || '8520',
+  dbSsl: process.env.DB_SSL === 'true' || process.env.DB_SSL === '1' || process.env.DB_SSL === 'yes',
   dbPath: process.env.DB_PATH || './data/garuda.db',
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || 'dev-access-secret',
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
