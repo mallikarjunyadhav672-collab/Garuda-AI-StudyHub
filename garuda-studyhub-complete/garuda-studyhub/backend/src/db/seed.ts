@@ -28,7 +28,16 @@ async function seedUsers() {
   const adminId = existingAdmin
     ? existingAdmin.id
     : Number(db.prepare(
-      `INSERT INTO users (name, email, phone, password_hash, role, exam_target, is_verified, is_premium) VALUES (?, ?, ?, ?, 'admin', ?, 1, 1)`
+      `INSERT INTO users (name, email, phone, password_hash, role, exam_target, is_verified, is_premium)
+       VALUES (?, ?, ?, ?, 'admin', ?, 1, 1)
+       ON DUPLICATE KEY UPDATE
+         name = VALUES(name),
+         phone = VALUES(phone),
+         password_hash = VALUES(password_hash),
+         role = VALUES(role),
+         exam_target = VALUES(exam_target),
+         is_verified = 1,
+         is_premium = 1`
     ).run('Admin Garuda', 'admin@garuda.ai', '9000011111', adminHash, 'SSC CGL').lastInsertRowid);
 
   const others = [
