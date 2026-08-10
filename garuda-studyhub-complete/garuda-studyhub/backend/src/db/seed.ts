@@ -49,7 +49,16 @@ async function seedUsers() {
     ['Kavitha Rao', 'kavitha@test.in', '9000088888', 'APPSC Group 2'],
     ['Manoj Gupta', 'manoj@test.in', '9000099999', 'Banking'],
   ];
-  const stmt = db.prepare(`INSERT INTO users (name, email, phone, password_hash, exam_target, is_verified) VALUES (?, ?, ?, ?, ?, 1)`);
+  const stmt = db.prepare(`
+    INSERT INTO users (name, email, phone, password_hash, exam_target, is_verified)
+    VALUES (?, ?, ?, ?, ?, 1)
+    ON DUPLICATE KEY UPDATE
+      name = VALUES(name),
+      phone = VALUES(phone),
+      password_hash = VALUES(password_hash),
+      exam_target = VALUES(exam_target),
+      is_verified = 1
+  `);
   for (const [name, email, phone, exam] of others) {
     const existing = db.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').get(email) as { id: number } | undefined;
     if (existing) continue;
