@@ -58,12 +58,14 @@ function getQueryRunnerPath(): string {
 
 function runQuerySync(mode: string, sql: string, params: any[] = []): any {
   const runnerPath = getQueryRunnerPath();
-  const command = runnerPath.endsWith('.ts') ? 'tsx' : process.execPath;
-  const args = runnerPath.endsWith('.ts') ? [runnerPath, JSON.stringify({ mode, sql, params })] : [runnerPath, JSON.stringify({ mode, sql, params })];
+  const command = process.execPath;
+  const args = runnerPath.endsWith('.ts')
+    ? [require.resolve('tsx/cli'), runnerPath, JSON.stringify({ mode, sql, params })]
+    : [runnerPath, JSON.stringify({ mode, sql, params })];
 
   const result = spawnSync(command, args, {
     encoding: 'utf8',
-    env: process.env,
+    env: { ...process.env, PATH: `${process.env.PATH || ''}${path.delimiter}${path.join(process.cwd(), 'node_modules', '.bin')}` },
     timeout: 60000,
   });
 
