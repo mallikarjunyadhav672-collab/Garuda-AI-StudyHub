@@ -26,11 +26,26 @@ export const storage = {
   },
 };
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://garuda-studyhub-api.onrender.com' : '/api')).trim();
-const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, '');
+// Determine API base URL. Prefer explicit VITE_API_BASE_URL (set in Vercel). If missing in PROD, fall back to the known Render host.
+let rawBase = (import.meta.env.VITE_API_BASE_URL as string) || (import.meta.env.PROD ? 'https://garuda-ai-studyhub.onrender.com' : '/api');
+rawBase = (rawBase || '').trim();
+// Normalize: remove trailing slash
+let normalized = rawBase.replace(/\/$/, '');
+// If the base is an absolute host (starts with http) and doesn't include /api, append /api so requests hit the backend's /api mount
+if (/^https?:\/\//i.test(normalized) && !/\/api($|\/)/i.test(normalized)) {
+  normalized = normalized + '/api';
+}
+// If normalized is empty, default to /api
+if (!normalized) normalized = '/api';
+
+// Log selected base so deployments can be diagnosed in the browser console
+if (typeof window !== 'undefined' && (import.meta.env.DEV || import.meta.env.PROD)) {
+  // eslint-disable-next-line no-console
+  console.debug('[api] selected baseURL:', normalized);
+}
 
 export const api = axios.create({
-  baseURL: normalizedApiBaseUrl || '/api',
+  baseURL: normalized,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -69,7 +84,7 @@ api.interceptors.response.use(
         return api(original);
       } catch {
         storage.clear();
-        if (window.location.pathname !== '/login') window.location.href = '/login';
+        if (typeof window !== 'undefined' && window.location.pathname !== '/login') window.location.href = '/login';
       }
     }
     return Promise.reject(error);
@@ -94,7 +109,7 @@ export function errorMessage(err: unknown): string {
     if (data?.message) return data.message;
     if (typeof data === 'string' && data.trim()) return data;
     if (err.response?.statusText) return `${err.response.statusText} (${err.response.status})`;
-    if (err.code === 'ERR_NETWORK') return 'Cannot reach the server. Is the backend running?';
+    if ((err as any).code === 'ERR_NETWORK') return 'Cannot reach the server. Is the backend running?';
     return err.message || 'Something went wrong';
   }
   return (err as Error)?.message || 'Something went wrong';
