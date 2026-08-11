@@ -34,45 +34,7 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
-// Runtime detection: try candidate hosts to find a reachable backend and set api.defaults.baseURL.
-// This helps when build-time env vars or platform rewrites are misconfigured.
-export const apiReady: Promise<void> = (async () => {
-  const candidates = [
-    (import.meta.env.VITE_API_BASE_URL || '').trim(),
-    'https://garuda-ai-studyhub.onrender.com',
-    '/api',
-  ].filter(Boolean);
-
-  async function probe(url: string) {
-    try {
-      // Normalize: if url starts with '/', treat as relative
-      const healthUrl = url.startsWith('/') ? `${url.replace(/\/$/, '')}/health` : `${url.replace(/\/$/, '')}/api/health`;
-      const res = await fetch(healthUrl, { method: 'GET', credentials: 'include' });
-      if (!res.ok) return false;
-      // quick sanity check for JSON
-      const text = await res.text();
-      if (!text) return false;
-      try { JSON.parse(text); } catch { /* not JSON but ok */ }
-      api.defaults.baseURL = url.startsWith('/') ? url.replace(/\/$/, '') : (url.replace(/\/$/, '') + '/api');
-      console.log('[api] selected baseURL:', api.defaults.baseURL);
-      return true;
-    } catch (e) {
-      console.debug('[api] probe failed', url, e?.message || e);
-      return false;
-    }
-  }
-
-  for (const c of candidates) {
-    // eslint-disable-next-line no-await-in-loop
-    const ok = await probe(c);
-    if (ok) return;
-  }
-
-  // fallback: keep relative /api
-  api.defaults.baseURL = normalizedApiBaseUrl || '/api';
-  console.warn('[api] no remote backend detected, falling back to', api.defaults.baseURL);
-})();
-
+// Request interceptor: attach Bearer token when present
 api.interceptors.request.use((config) => {
   const token = storage.getAccess();
   if (token) {
