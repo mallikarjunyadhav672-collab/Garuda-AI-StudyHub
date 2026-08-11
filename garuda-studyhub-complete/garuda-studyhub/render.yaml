@@ -44,9 +44,9 @@ services:
         name: Cache-Control
         value: public, max-age=31536000, immutable
     routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
       - type: proxy
         source: /api/*
         destination: https://garuda-studyhub-api.onrender.com
+      - type: rewrite
+        source: /*
+        destination: /index.html
