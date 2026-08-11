@@ -26,7 +26,7 @@ export const storage = {
   },
 };
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '/api').trim();
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || (import.meta.env.PROD ? 'https://garuda-studyhub-api.onrender.com' : '/api')).trim();
 const normalizedApiBaseUrl = apiBaseUrl.replace(/\/$/, '');
 
 export const api = axios.create({
