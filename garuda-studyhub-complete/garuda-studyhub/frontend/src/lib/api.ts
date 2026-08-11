@@ -63,6 +63,7 @@ api.interceptors.response.use(
       try {
         refreshing = refreshing || refreshAccessToken().finally(() => (refreshing = null));
         const token = await refreshing;
+        original.headers = original.headers || {};
         original.headers.Authorization = `Bearer ${token}`;
         return api(original);
       } catch {
