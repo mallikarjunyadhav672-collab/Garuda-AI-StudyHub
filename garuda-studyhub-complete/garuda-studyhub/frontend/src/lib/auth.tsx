@@ -33,10 +33,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const boot = async () => {
       if (storage.getAccess()) {
         try {
+          // Wait until api base URL is determined (probes might run at startup)
+          // apiReady resolves quickly if base is already known.
+          try { await (api as any).apiReady || (api as any).apiReady; } catch {};
           const { data } = await api.get('/auth/me');
           setUser(data.data.user);
           storage.setSession(data.data.user, storage.getAccess()!, storage.getRefresh()!);
-        } catch {
+        } catch (err) {
+          console.debug('[auth] boot failed', err);
           storage.clear();
           setUser(null);
         }
