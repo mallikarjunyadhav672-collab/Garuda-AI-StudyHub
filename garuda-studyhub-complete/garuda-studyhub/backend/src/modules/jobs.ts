@@ -88,8 +88,9 @@ router.get(
       : '0';
     if (req.user) params.unshift(req.user.id);
 
-    const total = prep(`SELECT COUNT(*) as c FROM jobs j LEFT JOIN categories c ON c.id = j.category_id WHERE ${where.join(' AND ')}`)
-      .get(...countParams) as { c: number };
+    const totalRow = prep(`SELECT COUNT(*) as c FROM jobs j LEFT JOIN categories c ON c.id = j.category_id WHERE ${where.join(' AND ')}`)
+      .get(...countParams) as { c?: number } | undefined;
+    const total = Number(totalRow?.c ?? 0);
     const p = Math.max(1, parseInt(page) || 1);
     const l = Math.min(50, Math.max(1, parseInt(limit) || 12));
     const offset = (p - 1) * l;
@@ -99,9 +100,9 @@ router.get(
        FROM jobs j LEFT JOIN categories c ON c.id = j.category_id
        WHERE ${where.join(' AND ')}
        ORDER BY j.featured DESC, ${orderBy} LIMIT ? OFFSET ?`
-    ).all(...params, l, offset);
+    ).all(...params, l, offset) as any[];
 
-    ok(res, { jobs: rows.map((r) => mapJob(r, req.user?.id)), total: total.c, page: p, limit: l });
+    ok(res, { jobs: (rows ?? []).map((r) => mapJob(r, req.user?.id)), total, page: p, limit: l });
   })
 );
 

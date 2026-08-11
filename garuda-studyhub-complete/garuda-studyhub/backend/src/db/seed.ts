@@ -17,44 +17,58 @@ function hasRows(tableName: string): boolean {
 // ---------------------------------------------------------------------------
 // Seed all demo content. Safe to call repeatedly — skips if already seeded.
 // ---------------------------------------------------------------------------
-export async function seedAll() {
-  const isSeeded = ['categories', 'jobs', 'materials', 'mock_tests', 'quiz_questions', 'affairs', 'videos'].every((tableName) => hasRows(tableName));
-  if (isSeeded) {
-    console.log('Database already seeded — skipping duplicate seed run.');
-    return;
+function ensureCategoryId(slug: string): number {
+  const categoryId = getCategoryId(slug);
+  if (categoryId != null) {
+    return categoryId;
   }
 
-  console.log('🌱 Seeding Garuda AI StudyHub...');
   seedCategories();
 
-  function ensureCategoryId(slug: string): number {
-    const categoryId = getCategoryId(slug);
-    if (categoryId != null) {
-      return categoryId;
+  const fallbackCategoryId = getCategoryId(slug);
+  if (fallbackCategoryId != null) {
+    return fallbackCategoryId;
+  }
+
+  const fallbackName = slug
+    .split('-')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+  const info = db.prepare(
+    `INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, 'default', ?, 'tag', 9999)`
+  ).run(fallbackName, slug, `Auto-created category for ${slug}`);
+
+  const insertedId = Number(info.lastInsertRowid ?? 0);
+  if (insertedId > 0) {
+    return insertedId;
+  }
+
+  throw new Error(`Category slug not found: ${slug}`);
+}
+
+export async function seedAll() {
+  try {
+    const isSeeded = ['categories', 'jobs', 'materials', 'mock_tests', 'quiz_questions', 'affairs', 'videos'].every((tableName) => hasRows(tableName));
+    if (isSeeded) {
+      console.log('Database already seeded — skipping duplicate seed run.');
+      return;
     }
 
+    console.log('🌱 Seeding Garuda AI StudyHub...');
     seedCategories();
 
-    const fallbackCategoryId = getCategoryId(slug);
-    if (fallbackCategoryId != null) {
-      return fallbackCategoryId;
-    }
-
-    const fallbackName = slug
-      .split('-')
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(' ');
-    const info = db.prepare(
-      `INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, 'default', ?, 'tag', 9999)`
-    ).run(fallbackName, slug, `Auto-created category for ${slug}`);
-
-    const insertedId = Number(info.lastInsertRowid ?? 0);
-    if (insertedId > 0) {
-      return insertedId;
-    }
-
-    throw new Error(`Category slug not found: ${slug}`);
+    const { adminId } = await seedUsers();
+    seedJobs(adminId);
+    seedMaterials(adminId);
+    seedMocks(adminId);
+    seedQuiz();
+    seedAffairs(adminId);
+    seedVideos(adminId);
+    console.log('✅ Seed complete.');
+  } catch (error) {
+    console.error('Seed failed gracefully; app will continue without demo data:', error);
   }
+}
 
 // ---------------------------------------------------------------------------
 // Users
@@ -538,31 +552,6 @@ function seedVideos(adminId: number) {
     const categoryId = ensureCategoryId(v.slug);
     stmt.run(v.title, v.desc, categoryId, v.playlist, v.color, v.duration, 'Garuda Faculty', v.exam, v.views, v.likes, JSON.stringify(v.tags), adminId);
   }
-}
-
-const { adminId } = await seedUsers();
-
-  if (!hasRows('jobs')) {
-    seedJobs(adminId);
-  }
-  if (!hasRows('materials')) {
-    seedMaterials(adminId);
-  }
-  if (!hasRows('mock_tests')) {
-    seedMocks(adminId);
-  }
-  if (!hasRows('quiz_questions')) {
-    seedQuiz();
-  }
-  if (!hasRows('affairs')) {
-    seedAffairs(adminId);
-  }
-  if (!hasRows('videos')) {
-    seedVideos(adminId);
-  }
-
-  console.log('✅ Seed complete!');
-  console.log('   └─ Admin: admin@garuda.ai / Admin@123');
 }
 
 // Auto-run only when executed directly: `npm run seed` / `tsx src/db/seed.ts`

@@ -43,12 +43,18 @@ async function start() {
   process.on('SIGTERM', shutdown);
 
   // Run bootstrap in the background so Render can see the port open immediately.
+  // Ensure the default admin account is created even when seed data fails.
   void (async () => {
     try {
       await seedIfEmpty();
+    } catch (error) {
+      console.error('Seed bootstrap failed:', error);
+    }
+
+    try {
       await ensureDefaultUsers();
     } catch (error) {
-      console.error('Bootstrap failed:', error);
+      console.error('Default user bootstrap failed:', error);
     }
   })();
 }

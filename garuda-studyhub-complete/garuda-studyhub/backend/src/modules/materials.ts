@@ -61,7 +61,8 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
     : '0';
   if (req.user) params.unshift(req.user.id);
 
-  const total = prep(`SELECT COUNT(*) as c FROM materials m LEFT JOIN categories c ON c.id = m.category_id WHERE ${where.join(' AND ')}`).get(...countParams) as { c: number };
+  const totalRow = prep(`SELECT COUNT(*) as c FROM materials m LEFT JOIN categories c ON c.id = m.category_id WHERE ${where.join(' AND ')}`).get(...countParams) as { c?: number } | undefined;
+  const total = Number(totalRow?.c ?? 0);
   const p = Math.max(1, parseInt(page) || 1);
   const l = Math.min(50, Math.max(1, parseInt(limit) || 12));
 
@@ -69,9 +70,9 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
     `SELECT m.*, c.name as category_name, ${bmSub} as bookmarked FROM materials m
      LEFT JOIN categories c ON c.id = m.category_id
      WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
-  ).all(...params, l, (p - 1) * l);
+  ).all(...params, l, (p - 1) * l) as any[];
 
-  ok(res, { materials: rows.map((r) => mapMaterial(r, req.user?.id)), total: total.c, page: p, limit: l });
+  ok(res, { materials: (rows ?? []).map((r) => mapMaterial(r, req.user?.id)), total, page: p, limit: l });
 }));
 
 // GET /api/materials/categories
