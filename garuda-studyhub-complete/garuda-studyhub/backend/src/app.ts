@@ -73,6 +73,20 @@ app.get('/api/health', async (_req, res) => {
   });
 });
 
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Garuda AI StudyHub API is running. The frontend is served separately; use /api/health for health checks and /api/auth/login for authentication.',
+  });
+});
+
+app.get('/api', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'Garuda API root. Use /api/health for health checks or /api/auth/login for authentication.',
+  });
+});
+
 app.use('/api', routes);
 
 // 404 + error handler
