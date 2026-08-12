@@ -43,7 +43,12 @@ function mapVideo(row: any, userId?: number) {
 }
 
 // GET /api/videos
+import { getCached, setCached } from '../utils/cache';
+
 router.get('/', requireAuth, asyncHandler(async (req, res) => {
+  const cacheKey = `videos:${JSON.stringify(req.query)}:user:${req.user?.id ?? 'anon'}`;
+  const cached = getCached(cacheKey);
+  if (cached) return ok(res, cached);
   const { category, search, sort = 'newest' } = req.query as Record<string, string>;
   const where = ['v.is_published = 1'];
   const params: unknown[] = [];
@@ -57,7 +62,9 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
      FROM videos v LEFT JOIN categories c ON c.id = v.category_id
      WHERE ${where.join(' AND ')} ORDER BY ${orderBy}`
   ).all(req.user!.id, req.user!.id, ...params);
-  ok(res, { videos: rows.map((r) => mapVideo(r, req.user!.id)) });
+  const payload = { videos: rows.map((r) => mapVideo(r, req.user!.id)) };
+  setCached(cacheKey, payload);
+  ok(res, payload);
 }));
 
 // GET /api/videos/categories

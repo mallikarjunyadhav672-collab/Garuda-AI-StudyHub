@@ -38,7 +38,12 @@ function mapAffair(row: any) {
 }
 
 // GET /api/affairs
+import { getCached, setCached } from '../utils/cache';
+
 router.get('/', asyncHandler(async (req, res) => {
+  const cacheKey = `affairs:${JSON.stringify(req.query)}:user:${req.user?.id ?? 'anon'}`;
+  const cached = getCached(cacheKey);
+  if (cached) return ok(res, cached);
   const { category, featured, q, period, page = '1', limit = '12' } = req.query as Record<string, string>;
   const where: string[] = [];
   const params: unknown[] = [];
@@ -55,7 +60,9 @@ router.get('/', asyncHandler(async (req, res) => {
     `SELECT a.*, c.name as category_name FROM affairs a LEFT JOIN categories c ON c.id = a.category_id
      WHERE ${where.join(' AND ')} ORDER BY a.date DESC LIMIT ? OFFSET ?`
   ).all(...params, l, (p - 1) * l);
-  ok(res, { affairs: rows.map(mapAffair), total: total.c, page: p, limit: l });
+  const payload = { affairs: rows.map(mapAffair), total: total.c, page: p, limit: l };
+  setCached(cacheKey, payload);
+  ok(res, payload);
 }));
 
 // GET /api/affairs/categories

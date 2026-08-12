@@ -41,7 +41,13 @@ function mapMaterial(row: any, userId?: number) {
 }
 
 // GET /api/materials
+import { getCached, setCached } from '../utils/cache';
+
 router.get('/', optionalAuth, asyncHandler(async (req, res) => {
+  const cacheKey = `materials:${JSON.stringify(req.query)}:user:${req.user?.id ?? 'anon'}`;
+  const cached = getCached(cacheKey);
+  if (cached) return ok(res, cached);
+
   const { search, category, exam, sort = 'popular', page = '1', limit = '12' } = req.query as Record<string, string>;
   const where = ['m.is_published = 1'];
   const params: unknown[] = [];
@@ -72,7 +78,9 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
      WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
   ).all(...params, l, (p - 1) * l) as any[];
 
-  ok(res, { materials: (rows ?? []).map((r) => mapMaterial(r, req.user?.id)), total, page: p, limit: l });
+  const payload = { materials: (rows ?? []).map((r) => mapMaterial(r, req.user?.id)), total, page: p, limit: l };
+  setCached(cacheKey, payload);
+  ok(res, payload);
 }));
 
 // GET /api/materials/categories

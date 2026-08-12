@@ -71,7 +71,12 @@ function mapTest(row: any, withQuestions = false) {
 }
 
 // GET /api/mocks
+import { getCached, setCached } from '../utils/cache';
+
 router.get('/', asyncHandler(async (req, res) => {
+  const cacheKey = `mocks:${JSON.stringify(req.query)}:user:${req.user?.id ?? 'anon'}`;
+  const cached = getCached(cacheKey);
+  if (cached) return ok(res, cached);
   const { type, exam, difficulty, search } = req.query as Record<string, string>;
   const where = ['m.is_published = 1'];
   const params: unknown[] = [];
@@ -83,7 +88,9 @@ router.get('/', asyncHandler(async (req, res) => {
     `SELECT m.*, c.name as category_name FROM mock_tests m LEFT JOIN categories c ON c.id = m.category_id
      WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC`
   ).all(...params);
-  ok(res, { mocks: rows.map((r) => mapTest(r)) });
+  const payload = { mocks: rows.map((r) => mapTest(r)) };
+  setCached(cacheKey, payload);
+  ok(res, payload);
 }));
 
 // GET /api/mocks/categories

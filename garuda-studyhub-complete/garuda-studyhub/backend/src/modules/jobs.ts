@@ -61,10 +61,15 @@ function mapJob(row: any, userId?: number) {
 }
 
 // GET /api/jobs — list with search/filter/pagination
+import { getCached, setCached } from '../utils/cache';
+
 router.get(
   '/',
   optionalAuth,
   asyncHandler(async (req, res) => {
+    const cacheKey = `jobs:${JSON.stringify(req.query)}:user:${req.user?.id ?? 'anon'}`;
+    const cached = getCached(cacheKey);
+    if (cached) return ok(res, cached);
     const { search, category, status, state, sort, page = '1', limit = '12' } = req.query as Record<string, string>;
     const where: string[] = [];
     const params: unknown[] = [];
@@ -102,7 +107,9 @@ router.get(
        ORDER BY j.featured DESC, ${orderBy} LIMIT ? OFFSET ?`
     ).all(...params, l, offset) as any[];
 
-    ok(res, { jobs: (rows ?? []).map((r) => mapJob(r, req.user?.id)), total, page: p, limit: l });
+    const payload = { jobs: (rows ?? []).map((r) => mapJob(r, req.user?.id)), total, page: p, limit: l };
+    setCached(cacheKey, payload);
+    ok(res, payload);
   })
 );
 
