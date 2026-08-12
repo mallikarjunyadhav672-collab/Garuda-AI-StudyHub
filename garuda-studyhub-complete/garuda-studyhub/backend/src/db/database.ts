@@ -63,17 +63,34 @@ function runQuerySync(mode: string, sql: string, params: any[] = []): any {
     ? [require.resolve('tsx/cli'), runnerPath, JSON.stringify({ mode, sql, params })]
     : [runnerPath, JSON.stringify({ mode, sql, params })];
 
+  // Log query start to help diagnose hanging DB helper processes.
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[db] runQuerySync start', { mode, sql: sql.length > 200 ? sql.slice(0, 200) + '…' : sql, params: JSON.stringify(params).slice(0, 200) });
+  } catch (e) {}
+  const startedAt = Date.now();
+
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${process.env.PATH || ''}${path.delimiter}${path.join(process.cwd(), 'node_modules', '.bin')}` },
     timeout: 60000,
   });
 
+  const durationMs = Date.now() - startedAt;
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[db] runQuerySync finished', { mode, durationMs, status: result.status });
+  } catch (e) {}
+
   if (result.error) {
+    // eslint-disable-next-line no-console
+    console.error('[db] runQuerySync error', result.error, { sql });
     throw result.error;
   }
 
   if (result.status !== 0) {
+    // eslint-disable-next-line no-console
+    console.error('[db] runQuerySync helper stderr', result.stderr);
     throw new Error(result.stderr?.trim() || `Database helper exited with status ${result.status}`);
   }
 
@@ -82,7 +99,13 @@ function runQuerySync(mode: string, sql: string, params: any[] = []): any {
     return undefined;
   }
 
-  return JSON.parse(output);
+  try {
+    return JSON.parse(output);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[db] runQuerySync parse output failed', { output });
+    throw e;
+  }
 }
 
 function normalizeSql(sql: string): string {

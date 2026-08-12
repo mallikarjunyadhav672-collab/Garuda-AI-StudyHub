@@ -44,6 +44,20 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '1mb' }));
+
+// Immediate request logger: logs arrival of each HTTP request so we can
+// observe requests that hang before a response is sent (morgan logs at
+// response finish, so long-running requests may not appear immediately).
+app.use((req, _res, next) => {
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[req] received', { method: req.method, url: req.originalUrl, origin: req.headers.origin || req.headers.referer });
+  } catch (e) {
+    // ignore
+  }
+  next();
+});
+
 app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
 // Serve uploaded files (avatars, materials, notices)
