@@ -110,6 +110,12 @@ app.get('/api', (_req, res) => {
   });
 });
 
+// Lightweight ping route that does not touch the database — useful to verify routing and network
+// when DB-dependent endpoints hang. Returns quickly and is safe to test from Postman or Render.
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true, time: new Date().toISOString() });
+});
+
 app.use('/api', routes);
 
 // 404 + error handler
