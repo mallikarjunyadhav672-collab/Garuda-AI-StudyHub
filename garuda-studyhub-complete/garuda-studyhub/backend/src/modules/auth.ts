@@ -78,11 +78,14 @@ router.post(
          VALUES (?, ?, ?, ?, ?, 'user')`
       )
       .run(name, email.toLowerCase().trim(), phone || null, passwordHash, examTarget || null);
-    const userId = Number(info.lastInsertRowid);
+    const userId = Number(info.lastInsertRowid || info.insertId || 0);
+
+    if (!userId) throw new ApiError(500, 'Failed to create user', 'USER_CREATE_FAILED');
 
     prep('INSERT INTO user_preferences (user_id) VALUES (?)').run(userId);
 
     const row = prep('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!row) throw new ApiError(500, 'Failed to load created user', 'USER_CREATE_FAILED');
     const user = publicUser(row);
     const token = issueToken(userId, 'verify');
     const verifyUrl = new URL(`/verify-email/${token}`, env.frontendUrls[0] || 'http://localhost:5173').toString();

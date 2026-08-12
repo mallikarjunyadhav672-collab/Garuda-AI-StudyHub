@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+﻿import axios, { AxiosError } from 'axios';
 
 const TOKEN_KEY = 'garuda_access_token';
 const REFRESH_KEY = 'garuda_refresh_token';
@@ -41,7 +41,7 @@ if (!normalized) normalized = '/api';
 // Log selected base so deployments can be diagnosed in the browser console
 if (typeof window !== 'undefined' && (import.meta.env.DEV || import.meta.env.PROD)) {
   // eslint-disable-next-line no-console
-  console.debug('[api] selected baseURL:', normalized);
+  console.debug('[api] rawBase:', rawBase, 'selected baseURL:', normalized);
 }
 
 export const api = axios.create({
@@ -118,3 +118,6 @@ export function errorMessage(err: unknown): string {
 export function handleError(err: unknown): string {
   return errorMessage(err);
 }
+
+
+
