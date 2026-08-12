@@ -62,7 +62,8 @@ export const env = {
   refreshTokenTtl: process.env.REFRESH_TOKEN_TTL || '7d',
   frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173')
     .split(',')
-    .map((s) => s.trim())
+    // Trim and remove any trailing slashes so comparisons are consistent
+    .map((s) => s.trim().replace(/\/$/, ''))
     .filter(Boolean),
   openaiApiKey: process.env.OPENAI_API_KEY || '',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
