@@ -20,19 +20,28 @@ app.use(helmet({ contentSecurityPolicy: false }));
 
 // CORS — allow configured frontend origins (plus preview origin when present)
 const allowedOrigins = [...env.frontendUrls];
-app.use(
-  cors({
-    origin(origin, cb) {
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
-      // Allow sandbox preview hosts like https://5173-xxxx.e2b.app
-      if (/^https:\/\/\d+-[a-z0-9]+\.e2b\.app$/.test(origin)) return cb(null, true);
-      // Allow Vercel deployment hosts (production + preview)
-      if (/^https:\/\/([a-z0-9-]+\.)*vercel\.app$/.test(origin) || /^https:\/\/([a-z0-9-]+\.)*vercel\.dev$/.test(origin)) return cb(null, true);
-      return cb(new Error(`Origin ${origin} not allowed by CORS`));
-    },
-    credentials: true,
-  })
-);
+
+const corsOptions = {
+  origin(origin: string | undefined, cb: (err: Error | null, allow?: boolean) => void) {
+    // Debug log to diagnose CORS rejections in production
+    // eslint-disable-next-line no-console
+    console.debug('[cors] checking origin:', origin, 'allowedOrigins:', allowedOrigins);
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return cb(null, true);
+    // Allow sandbox preview hosts like https://5173-xxxx.e2b.app
+    if (/^https:\/\/\d+-[a-z0-9]+\.e2b\.app$/.test(origin)) return cb(null, true);
+    // Allow Vercel deployment hosts (production + preview)
+    if (/^https:\/\/([a-z0-9-]+\.)*vercel\.app$/.test(origin) || /^https:\/\/([a-z0-9-]+\.)*vercel\.dev$/.test(origin)) return cb(null, true);
+    return cb(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  preflightContinue: false,
+};
+
+app.use(cors(corsOptions));
+// Explicitly handle preflight requests so they always receive CORS headers
+app.options('*', cors(corsOptions));
 
 app.use(express.json({ limit: '1mb' }));
 app.use(morgan(env.isProd ? 'combined' : 'dev'));
