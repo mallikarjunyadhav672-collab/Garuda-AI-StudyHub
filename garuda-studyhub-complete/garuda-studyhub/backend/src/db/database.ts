@@ -2,6 +2,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { env } from '../config/env';
+import { ApiError } from '../utils/helpers';
 
 // ---------------------------------------------------------------------------
 // Synchronous MySQL compatibility layer built on mysql2 + a small helper.
@@ -70,10 +71,12 @@ function runQuerySync(mode: string, sql: string, params: any[] = []): any {
   } catch (e) {}
   const startedAt = Date.now();
 
+  const timeoutMs = Number(process.env.DB_QUERY_TIMEOUT_MS || 10000);
+
   const result = spawnSync(command, args, {
     encoding: 'utf8',
     env: { ...process.env, PATH: `${process.env.PATH || ''}${path.delimiter}${path.join(process.cwd(), 'node_modules', '.bin')}` },
-    timeout: 60000,
+    timeout: timeoutMs,
   });
 
   const durationMs = Date.now() - startedAt;
@@ -81,6 +84,13 @@ function runQuerySync(mode: string, sql: string, params: any[] = []): any {
     // eslint-disable-next-line no-console
     console.debug('[db] runQuerySync finished', { mode, durationMs, status: result.status });
   } catch (e) {}
+
+  // Detect timeout and return a clear 503-style error for callers
+  if (result.error && (String(result.error.message).toLowerCase().includes('timed out') || (result.signal && result.signal === 'SIGTERM'))) {
+    // eslint-disable-next-line no-console
+    console.error('[db] runQuerySync timed out', { timeoutMs, sql });
+    throw new ApiError(503, 'Database query timed out', 'DB_TIMEOUT');
+  }
 
   if (result.error) {
     // eslint-disable-next-line no-console
@@ -91,6 +101,10 @@ function runQuerySync(mode: string, sql: string, params: any[] = []): any {
   if (result.status !== 0) {
     // eslint-disable-next-line no-console
     console.error('[db] runQuerySync helper stderr', result.stderr);
+    // Treat stderr containing 'timed out' as a timeout too
+    if (String(result.stderr || '').toLowerCase().includes('timed out')) {
+      throw new ApiError(503, 'Database query timed out', 'DB_TIMEOUT');
+    }
     throw new Error(result.stderr?.trim() || `Database helper exited with status ${result.status}`);
   }
 
