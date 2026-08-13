@@ -1,4 +1,4 @@
-import axios, { AxiosError } from 'axios';
+﻿import axios, { AxiosError } from 'axios';
 
 const TOKEN_KEY = 'garuda_access_token';
 const REFRESH_KEY = 'garuda_refresh_token';
@@ -32,7 +32,7 @@ rawBase = (rawBase || '').trim();
 // Normalize: remove trailing slash
 let normalized = rawBase.replace(/\/$/, '');
 // If the base is an absolute host (starts with http) and doesn't include /api, append /api so requests hit the backend's /api mount
-if (/^https?:\/\//i.test(normalized) && !/\/api($|\/)/i.test(normalized)) {
+if (/^https?:\/\//i.test(normalized) && !/\/api($|\/) /i.test(normalized)) {
   normalized = normalized + '/api';
 }
 // If normalized is empty, default to /api
@@ -119,7 +119,3 @@ export function errorMessage(err: unknown): string {
 export function handleError(err: unknown): string {
   return errorMessage(err);
 }
-
-
-
-

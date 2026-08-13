@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import nodemailer from 'nodemailer';
 import { z } from 'zod';
-import { db, prep } from '../db/database';
+import { db, prep } from '../db/database.pool';
 import {
   requireAuth,
   signAccessToken,
@@ -74,7 +74,7 @@ router.post(
     const { name, email, phone, password, examTarget } = req.body;
 
     console.debug('[DB] POST /api/auth/register duplicate-email check started');
-    const existing = prep('SELECT id FROM users WHERE lower(email) = lower(?)').get(email);
+    const existing = await prep('SELECT id FROM users WHERE lower(email) = lower(?)').get(email);
     console.debug('[DB] POST /api/auth/register duplicate-email check completed', { found: !!existing });
     if (existing) {
       console.debug('[API] POST /api/auth/register completed status=409 duration=', Date.now() - start);
@@ -86,7 +86,7 @@ router.post(
     console.debug('[DB] POST /api/auth/register password hash completed');
 
     console.debug('[DB] register user query started');
-    const info = db
+    const info = await db
       .prepare(
         `INSERT INTO users (name, email, phone, password_hash, exam_target, role)
          VALUES (?, ?, ?, ?, ?, 'user')`
@@ -102,10 +102,10 @@ router.post(
     }
 
     console.debug('[DB] inserting default user_preferences');
-    prep('INSERT INTO user_preferences (user_id) VALUES (?)').run(userId);
+    await prep('INSERT INTO user_preferences (user_id) VALUES (?)').run(userId);
 
     console.debug('[DB] fetching created user');
-    const row = prep('SELECT * FROM users WHERE id = ?').get(userId);
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(userId);
     if (!row) {
       console.debug('[API] POST /api/auth/register failed to load created user');
       throw new ApiError(500, 'Failed to load created user', 'USER_CREATE_FAILED');
@@ -125,14 +125,14 @@ router.post(
       console.debug('[API] sendEmail completed');
     } catch (err) {
       console.error('[API] sendEmail failed', { err });
-      prep('DELETE FROM auth_tokens WHERE user_id = ?').run(userId);
-      prep('DELETE FROM user_preferences WHERE user_id = ?').run(userId);
-      prep('DELETE FROM users WHERE id = ?').run(userId);
+      await prep('DELETE FROM auth_tokens WHERE user_id = ?').run(userId);
+      await prep('DELETE FROM user_preferences WHERE user_id = ?').run(userId);
+      await prep('DELETE FROM users WHERE id = ?').run(userId);
       throw new ApiError(500, 'Failed to send verification email. Please try again later.', 'EMAIL_SEND_FAILED');
     }
 
     console.debug('[DB] inserting welcome notification');
-    prep(
+    await prep(
       `INSERT INTO notifications (user_id, type, title, body)
        VALUES (?, 'system', ?, ?)`
     ).run(userId, 'Welcome to Garuda AI StudyHub 🚀', 'Your account has been created. Verify your email to start using the app.');
@@ -157,7 +157,7 @@ router.post(
   validate(loginSchema),
   asyncHandler(async (req, res) => {
     const { email, password } = req.body;
-    const row = prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(email.trim());
+    const row = await prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(email.trim());
     if (!row) throw new ApiError(401, 'Invalid email or password', 'INVALID_CREDENTIALS');
  
     if (!row.is_verified) {
@@ -176,7 +176,7 @@ router.post(
     const refreshToken = signRefreshToken(user.id);
     storeRefreshToken(user.id, refreshToken);
  
-    prep(`UPDATE users SET updated_at = datetime('now') WHERE id = ?`).run(user.id);
+    await prep(`UPDATE users SET updated_at = datetime('now') WHERE id = ?`).run(user.id);
     ok(res, { user, accessToken, refreshToken });
   })
 );
@@ -187,10 +187,10 @@ router.post(
   validate(refreshSchema),
   asyncHandler(async (req, res) => {
     const { refreshToken } = req.body;
-    const stored = prep('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(hashToken(refreshToken));
+    const stored = await prep('SELECT * FROM refresh_tokens WHERE token_hash = ?').get(hashToken(refreshToken));
     if (!stored) throw new ApiError(401, 'Invalid refresh token', 'INVALID_REFRESH_TOKEN');
 
-    const row = prep('SELECT * FROM users WHERE id = ?').get(stored.user_id);
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(stored.user_id);
     if (!row) throw new ApiError(401, 'User no longer exists', 'UNAUTHORIZED');
     if (!row.is_verified) throw new ApiError(403, 'Email not verified', 'EMAIL_NOT_VERIFIED');
  
@@ -220,7 +220,7 @@ router.get(
   '/me',
   requireAuth,
   asyncHandler(async (req, res) => {
-    const row = prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
     if (!row) throw new ApiError(404, 'User not found', 'NOT_FOUND');
     ok(res, { user: publicUser(row) });
   })
@@ -232,12 +232,12 @@ router.post(
   requireAuth,
   validate(z.object({ currentPassword: z.string().min(1), newPassword: passwordSchema })),
   asyncHandler(async (req, res) => {
-    const row = prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
     const match = await bcrypt.compare(req.body.currentPassword, row.password_hash);
     if (!match) throw new ApiError(400, 'Current password is incorrect', 'WRONG_PASSWORD');
     const hash = await bcrypt.hash(req.body.newPassword, 12);
-    prep(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(hash, row.id);
-    prep('DELETE FROM refresh_tokens WHERE user_id = ?').run(row.id);
+    await prep(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(hash, row.id);
+    await prep('DELETE FROM refresh_tokens WHERE user_id = ?').run(row.id);
     ok(res, { message: 'Password updated. Please login again.' });
   })
 );
