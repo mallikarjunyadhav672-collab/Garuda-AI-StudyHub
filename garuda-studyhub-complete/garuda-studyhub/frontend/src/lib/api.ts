@@ -47,6 +47,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || import.meta.env.PRO
 export const api = axios.create({
   baseURL: normalized,
   headers: { 'Content-Type': 'application/json' },
+  timeout: Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000),
 });
 
 // Request interceptor: attach Bearer token when present

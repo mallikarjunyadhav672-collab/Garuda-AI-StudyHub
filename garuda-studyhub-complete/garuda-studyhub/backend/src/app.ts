@@ -58,6 +58,36 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Per-request timeout: ensure requests don't hang forever. If a request exceeds
+// REQUEST_TIMEOUT_MS, send a JSON 503 response and abort processing.
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 20000);
+app.use((req, res, next) => {
+  let handled = false;
+  const timer = setTimeout(() => {
+    if (handled) return;
+    handled = true;
+    try {
+      console.error('[req] timed out', { method: req.method, url: req.originalUrl, timeout: REQUEST_TIMEOUT_MS });
+      if (!res.headersSent) {
+        res.status(503).json({ success: false, error: { code: 'REQUEST_TIMEOUT', message: 'Request timed out' } });
+      }
+    } catch (e) {
+      // ignore
+    }
+    try { req.socket.destroy(); } catch (e) {}
+  }, REQUEST_TIMEOUT_MS);
+
+  res.on('finish', () => {
+    handled = true;
+    clearTimeout(timer);
+  });
+  res.on('close', () => {
+    handled = true;
+    clearTimeout(timer);
+  });
+  next();
+});
+
 app.use(morgan(env.isProd ? 'combined' : 'dev'));
 
 // Serve uploaded files (avatars, materials, notices)

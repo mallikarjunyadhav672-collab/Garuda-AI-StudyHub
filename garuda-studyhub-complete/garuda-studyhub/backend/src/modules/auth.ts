@@ -67,53 +67,86 @@ router.post(
   '/register',
   validate(registerSchema),
   asyncHandler(async (req, res) => {
-    const { name, email, phone, password, examTarget } = req.body;
-    const existing = prep('SELECT id FROM users WHERE lower(email) = lower(?)').get(email);
-    if (existing) throw new ApiError(409, 'An account with this email already exists', 'EMAIL_TAKEN');
+    const start = Date.now();
+    console.debug('[API] POST /api/auth/register started');
+    console.debug('[API] POST /api/auth/register validation passed');
 
+    const { name, email, phone, password, examTarget } = req.body;
+
+    console.debug('[DB] POST /api/auth/register duplicate-email check started');
+    const existing = prep('SELECT id FROM users WHERE lower(email) = lower(?)').get(email);
+    console.debug('[DB] POST /api/auth/register duplicate-email check completed', { found: !!existing });
+    if (existing) {
+      console.debug('[API] POST /api/auth/register completed status=409 duration=', Date.now() - start);
+      throw new ApiError(409, 'An account with this email already exists', 'EMAIL_TAKEN');
+    }
+
+    console.debug('[DB] POST /api/auth/register password hash started');
     const passwordHash = await bcrypt.hash(password, 12);
+    console.debug('[DB] POST /api/auth/register password hash completed');
+
+    console.debug('[DB] register user query started');
     const info = db
       .prepare(
         `INSERT INTO users (name, email, phone, password_hash, exam_target, role)
          VALUES (?, ?, ?, ?, ?, 'user')`
       )
       .run(name, email.toLowerCase().trim(), phone || null, passwordHash, examTarget || null);
+    console.debug('[DB] register user query completed', { info });
+
     const userId = Number(info.lastInsertRowid || info.insertId || 0);
 
-    if (!userId) throw new ApiError(500, 'Failed to create user', 'USER_CREATE_FAILED');
+    if (!userId) {
+      console.debug('[API] POST /api/auth/register failed to create user');
+      throw new ApiError(500, 'Failed to create user', 'USER_CREATE_FAILED');
+    }
 
+    console.debug('[DB] inserting default user_preferences');
     prep('INSERT INTO user_preferences (user_id) VALUES (?)').run(userId);
 
+    console.debug('[DB] fetching created user');
     const row = prep('SELECT * FROM users WHERE id = ?').get(userId);
-    if (!row) throw new ApiError(500, 'Failed to load created user', 'USER_CREATE_FAILED');
+    if (!row) {
+      console.debug('[API] POST /api/auth/register failed to load created user');
+      throw new ApiError(500, 'Failed to load created user', 'USER_CREATE_FAILED');
+    }
+
     const user = publicUser(row);
     const token = issueToken(userId, 'verify');
     const verifyUrl = new URL(`/verify-email/${token}`, env.frontendUrls[0] || 'http://localhost:5173').toString();
 
     try {
+      console.debug('[API] sending verification email (or logging token)');
       await sendEmail(
         user.email,
         'Verify your Garuda StudyHub email',
         `<p>Hi ${user.name},</p><p>Thanks for registering at Garuda StudyHub. Please verify your email by clicking the link below:</p><p><a href="${verifyUrl}">Verify Email</a></p><p>This link expires in ${env.verifyTokenTtlMinutes} minutes.</p>`
       );
+      console.debug('[API] sendEmail completed');
     } catch (err) {
+      console.error('[API] sendEmail failed', { err });
       prep('DELETE FROM auth_tokens WHERE user_id = ?').run(userId);
       prep('DELETE FROM user_preferences WHERE user_id = ?').run(userId);
       prep('DELETE FROM users WHERE id = ?').run(userId);
       throw new ApiError(500, 'Failed to send verification email. Please try again later.', 'EMAIL_SEND_FAILED');
     }
 
+    console.debug('[DB] inserting welcome notification');
     prep(
       `INSERT INTO notifications (user_id, type, title, body)
        VALUES (?, 'system', ?, ?)`
     ).run(userId, 'Welcome to Garuda AI StudyHub 🚀', 'Your account has been created. Verify your email to start using the app.');
 
-    const response: any = { message: 'Account created. Check your email to verify your address before logging in.' };
+    const response: any = {
+      user,
+      message: 'Account created. Check your email to verify your address before logging in.',
+    };
     if (!env.emailHost || !env.emailUser || !env.emailPass) {
       response.verifyToken = token;
       response.notice = 'Email is not configured for SMTP. Use the verification token returned here for testing.';
     }
 
+    console.debug('[API] POST /api/auth/register completed status=201 duration=', Date.now() - start);
     ok(res, response, 201);
   })
 );

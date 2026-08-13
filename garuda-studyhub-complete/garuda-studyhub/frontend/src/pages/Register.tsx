@@ -77,20 +77,20 @@ export default function Register() {
               <Field label="Full Name">
                 <div className="relative">
                   <User size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <Input required placeholder="e.g. Rahul Sharma" className="!pl-11" autocomplete="name" value={form.name} onChange={set('name')} />
+                  <Input required placeholder="e.g. Rahul Sharma" className="!pl-11" autoComplete="name" value={form.name} onChange={set('name')} />
                 </div>
               </Field>
               <div className="grid sm:grid-cols-2 gap-5">
                 <Field label="Email Address">
                   <div className="relative">
                     <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                    <Input type="email" required placeholder="you@example.com" className="!pl-11" autocomplete="email" value={form.email} onChange={set('email')} />
+                    <Input type="email" required placeholder="you@example.com" className="!pl-11" autoComplete="email" value={form.email} onChange={set('email')} />
                   </div>
                 </Field>
                 <Field label="Mobile">
                   <div className="relative">
                     <Phone size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                    <Input placeholder="9876543210" className="!pl-11" autocomplete="tel" value={form.phone} onChange={set('phone')} />
+                    <Input placeholder="9876543210" className="!pl-11" autoComplete="tel" value={form.phone} onChange={set('phone')} />
                   </div>
                 </Field>
               </div>
@@ -98,7 +98,7 @@ export default function Register() {
                 <Field label="Password">
                   <div className="relative">
                     <Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                    <Input type={show ? 'text' : 'password'} required placeholder="Min 8 characters" className="!pl-11 !pr-11" autocomplete="new-password" value={form.password} onChange={set('password')} />
+                    <Input type={show ? 'text' : 'password'} required placeholder="Min 8 characters" className="!pl-11 !pr-11" autoComplete="new-password" value={form.password} onChange={set('password')} />
                     <button type="button" onClick={() => setShow(!show)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 transition">
                       {show ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -107,7 +107,7 @@ export default function Register() {
                 <Field label="Confirm Password">
                   <div className="relative">
                     <Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                    <Input type={show ? 'text' : 'password'} required placeholder="Repeat password" className="!pl-11" autocomplete="new-password" value={form.confirm} onChange={set('confirm')} />
+                    <Input type={show ? 'text' : 'password'} required placeholder="Repeat password" className="!pl-11" autoComplete="new-password" value={form.confirm} onChange={set('confirm')} />
                   </div>
                 </Field>
               </div>

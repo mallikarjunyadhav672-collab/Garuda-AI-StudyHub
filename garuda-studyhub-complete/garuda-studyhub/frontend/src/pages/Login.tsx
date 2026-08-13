@@ -84,13 +84,13 @@ export default function Login() {
               <Field label="Email Address">
                 <div className="relative">
                   <Mail size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <Input type="email" required placeholder="you@example.com" className="!pl-11" autocomplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                  <Input type="email" required placeholder="you@example.com" className="!pl-11" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
                 </div>
               </Field>
               <Field label="Password">
                 <div className="relative">
                   <Lock size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-                  <Input type={show ? 'text' : 'password'} required placeholder="••••••••" className="!pl-11 !pr-11" autocomplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                  <Input type={show ? 'text' : 'password'} required placeholder="••••••••" className="!pl-11 !pr-11" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
                   <button type="button" onClick={() => setShow(!show)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-600 transition">
                     {show ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>

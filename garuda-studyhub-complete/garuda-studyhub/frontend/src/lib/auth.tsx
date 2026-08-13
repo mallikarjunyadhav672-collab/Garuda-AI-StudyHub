@@ -58,9 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (payload: { name: string; email: string; password: string; phone?: string; examTarget?: string }) => {
-    const { data } = await api.post('/auth/register', payload);
-    storage.setSession(data.data.user, data.data.accessToken, data.data.refreshToken);
-    setUser(data.data.user);
+    await api.post('/auth/register', payload);
+    setUser(null);
   };
 
   const logout = async () => {
