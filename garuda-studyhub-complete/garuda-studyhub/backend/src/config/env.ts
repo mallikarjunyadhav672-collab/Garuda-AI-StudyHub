@@ -60,7 +60,7 @@ export const env = {
   jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret',
   accessTokenTtl: process.env.ACCESS_TOKEN_TTL || '15m',
   refreshTokenTtl: process.env.REFRESH_TOKEN_TTL || '7d',
-  frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173')
+  frontendUrls: (pickEnv('FRONTEND_URL', 'CLIENT_URL', 'APP_URL', 'VERCEL_URL', 'VERCEL_BRANCH_URL', 'RENDER_EXTERNAL_URL') || 'http://localhost:5173')
     .split(',')
     // Trim and remove any trailing slashes so comparisons are consistent
     .map((s) => s.trim().replace(/\/$/, ''))

@@ -143,7 +143,8 @@ router.post(
     };
     if (!env.emailHost || !env.emailUser || !env.emailPass) {
       response.verifyToken = token;
-      response.notice = 'Email is not configured for SMTP. Use the verification token returned here for testing.';
+      response.verificationUrl = verifyUrl;
+      response.notice = 'Email delivery is not configured on this server. Use the verification link below for testing.';
     }
 
     console.debug('[API] POST /api/auth/register completed status=201 duration=', Date.now() - start);

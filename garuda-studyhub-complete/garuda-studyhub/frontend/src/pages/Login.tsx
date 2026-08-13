@@ -10,12 +10,13 @@ export default function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const state = location.state as { info?: string; email?: string } | null;
+  const state = location.state as { info?: string; email?: string; verificationUrl?: string } | null;
   const [email, setEmail] = useState(state?.email || '');
   const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState(state?.info || '');
+  const [verificationUrl, setVerificationUrl] = useState(state?.verificationUrl || '');
   const [loading, setLoading] = useState(false);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
@@ -76,7 +77,12 @@ export default function Login() {
               <p className="text-sm text-ink-500 mt-2">Enter your credentials to continue your learning journey.</p>
             </div>
 
-            {infoMessage && <div className="mb-6"><Alert tone="green">{infoMessage}</Alert></div>}
+            {infoMessage && <div className="mb-6"><Alert tone="green">{infoMessage}{verificationUrl ? (
+                <>
+                  <br />
+                  <a href={verificationUrl} target="_blank" rel="noreferrer" className="font-semibold underline">Open verification link</a>
+                </>
+              ) : null}</Alert></div>}
             {error && <div className="mb-6"><Alert tone="red">{error}</Alert></div>}
             {resendMessage && <div className="mb-6"><Alert tone="green">{resendMessage}</Alert></div>}
 

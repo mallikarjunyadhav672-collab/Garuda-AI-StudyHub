@@ -30,17 +30,23 @@ export default function Register() {
     if (!terms) return setError('Please accept the terms to continue.');
     setLoading(true);
     try {
-      await register({
+      const result = await register({
         name: form.name,
         email: form.email,
         password: form.password,
         phone: form.phone || undefined,
         examTarget: form.examTarget || undefined,
       });
+      const verificationUrl = result?.verificationUrl || result?.verifyToken
+        ? `${window.location.origin}/verify-email/${result?.verifyToken ?? ''}`
+        : '';
       navigate('/login', {
         state: {
-          info: 'Account created. Please verify your email before signing in.',
+          info: verificationUrl
+            ? `Account created. Email delivery is not configured, so use this verification link before signing in: ${verificationUrl}`
+            : 'Account created. Please verify your email before signing in.',
           email: form.email,
+          verificationUrl,
         },
       });
     } catch (err) {
