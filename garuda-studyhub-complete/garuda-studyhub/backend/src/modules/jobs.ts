@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { optionalAuth, requireAuth, requireAdmin, validate } from '../middleware';
 import { ApiError, asyncHandler, ok } from '../utils/helpers';
 
@@ -93,14 +93,14 @@ router.get(
       : '0';
     if (req.user) params.unshift(req.user.id);
 
-    const totalRow = prep(`SELECT COUNT(*) as c FROM jobs j LEFT JOIN categories c ON c.id = j.category_id WHERE ${where.join(' AND ')}`)
+    const totalRow = await prep(`SELECT COUNT(*) as c FROM jobs j LEFT JOIN categories c ON c.id = j.category_id WHERE ${where.join(' AND ')}`)
       .get(...countParams) as { c?: number } | undefined;
     const total = Number(totalRow?.c ?? 0);
     const p = Math.max(1, parseInt(page) || 1);
     const l = Math.min(50, Math.max(1, parseInt(limit) || 12));
     const offset = (p - 1) * l;
 
-    const rows = prep(
+    const rows = await prep(
       `SELECT j.*, c.name as category_name, ${savedSub} as saved
        FROM jobs j LEFT JOIN categories c ON c.id = j.category_id
        WHERE ${where.join(' AND ')}
@@ -115,21 +115,21 @@ router.get(
 
 // GET /api/jobs/categories
 router.get('/categories', asyncHandler(async (_req, res) => {
-  const cats = prep(`SELECT c.*, (SELECT COUNT(*) FROM jobs j WHERE j.category_id = c.id) as count
+  const cats = await prep(`SELECT c.*, (SELECT COUNT(*) FROM jobs j WHERE j.category_id = c.id) as count
     FROM categories c WHERE c.type = 'job' ORDER BY c.sort_order`).all();
   ok(res, { categories: cats });
 }));
 
 // GET /api/jobs/organizations
 router.get('/organizations', asyncHandler(async (_req, res) => {
-  const orgs = prep(`SELECT org, COUNT(*) as jobCount, MAX(last_date) as latestDeadline FROM jobs
+  const orgs = await prep(`SELECT org, COUNT(*) as jobCount, MAX(last_date) as latestDeadline FROM jobs
     WHERE status != 'Expired' GROUP BY org ORDER BY jobCount DESC`).all();
   ok(res, { organizations: orgs });
 }));
 
 // GET /api/jobs/saved (must be declared before /:id)
 router.get('/saved', requireAuth, asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT j.*, c.name as category_name, 1 as saved FROM saved_items si
      JOIN jobs j ON j.id = si.entity_id LEFT JOIN categories c ON c.id = j.category_id
      WHERE si.user_id = ? AND si.entity_type = 'job' ORDER BY si.created_at DESC`
@@ -143,7 +143,7 @@ router.get('/featured', optionalAuth, asyncHandler(async (req, res) => {
     ? `(SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'job' AND si.entity_id = j.id)`
     : '0';
   const params: unknown[] = req.user ? [req.user.id] : [];
-  const rows = prep(
+  const rows = await prep(
     `SELECT j.*, c.name as category_name, ${savedSub} as saved FROM jobs j
      LEFT JOIN categories c ON c.id = j.category_id
      WHERE j.featured = 1 AND j.status != 'Expired' ORDER BY j.last_date ASC LIMIT 6`
@@ -158,7 +158,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
     ? `(SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'job' AND si.entity_id = j.id)`
     : '0';
   const params: unknown[] = req.user ? [req.user.id, id] : [id];
-  const row = prep(
+  const row = await prep(
     `SELECT j.*, c.name as category_name, ${savedSub} as saved FROM jobs j
      LEFT JOIN categories c ON c.id = j.category_id WHERE j.id = ?`
   ).get(...params);
@@ -169,7 +169,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // POST /api/jobs — admin create
 router.post('/', requireAuth, requireAdmin, validate(jobSchema), asyncHandler(async (req, res) => {
   const b = req.body;
-  const info = prep(
+  const info = await prep(
     `INSERT INTO jobs (org, role, exam, posts, last_date, qualification, location, salary, category_id,
       department, state, job_type, status, featured, trend, age_limit, application_fee, selection_process,
       eligibility, description, notice_url, created_by)
@@ -182,13 +182,13 @@ router.post('/', requireAuth, requireAdmin, validate(jobSchema), asyncHandler(as
     JSON.stringify(b.selectionProcess || []), JSON.stringify(b.eligibility || []),
     b.description || null, b.noticeUrl || null, req.user!.id
   );
-  ok(res, { id: Number(info.lastInsertRowid) }, 201);
+  ok(res, { id: Number(info.lastInsertRowid || (info.insertId ?? 0)) }, 201);
 }));
 
 // PUT /api/jobs/:id — admin update
 router.put('/:id', requireAuth, requireAdmin, validate(jobSchema.partial()), asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const existing = prep('SELECT * FROM jobs WHERE id = ?').get(id);
+  const existing = await prep('SELECT * FROM jobs WHERE id = ?').get(id);
   if (!existing) throw new ApiError(404, 'Job not found', 'NOT_FOUND');
   const b = req.body;
   const updates = {
@@ -215,7 +215,7 @@ router.put('/:id', requireAuth, requireAdmin, validate(jobSchema.partial()), asy
 
 // DELETE /api/jobs/:id — admin delete
 router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const info = prep('DELETE FROM jobs WHERE id = ?').run(Number(req.params.id));
+  const info = await prep('DELETE FROM jobs WHERE id = ?').run(Number(req.params.id));
   if (info.changes === 0) throw new ApiError(404, 'Job not found', 'NOT_FOUND');
   ok(res, { message: 'Job deleted' });
 }));
@@ -223,7 +223,7 @@ router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) =
 // POST /api/jobs/:id/save — save job
 router.post('/:id/save', requireAuth, asyncHandler(async (req, res) => {
   const jobId = Number(req.params.id);
-  const job = prep('SELECT id FROM jobs WHERE id = ?').get(jobId);
+  const job = await prep('SELECT id FROM jobs WHERE id = ?').get(jobId);
   if (!job) throw new ApiError(404, 'Job not found', 'NOT_FOUND');
   prep(`INSERT OR IGNORE INTO saved_items (user_id, entity_type, entity_id) VALUES (?, 'job', ?)`)
     .run(req.user!.id, jobId);
@@ -245,9 +245,9 @@ router.post('/:id/apply', requireAuth, validate(z.object({
   notes: z.string().optional(),
 })), asyncHandler(async (req, res) => {
   const jobId = Number(req.params.id);
-  const job = prep('SELECT id FROM jobs WHERE id = ?').get(jobId);
+  const job = await prep('SELECT id FROM jobs WHERE id = ?').get(jobId);
   if (!job) throw new ApiError(404, 'Job not found', 'NOT_FOUND');
-  const existing = prep(`SELECT id FROM job_applications WHERE user_id = ? AND job_id = ?`).get(req.user!.id, jobId);
+  const existing = await prep(`SELECT id FROM job_applications WHERE user_id = ? AND job_id = ?`).get(req.user!.id, jobId);
   if (existing) throw new ApiError(409, 'You have already applied for this job', 'ALREADY_APPLIED');
   prep(`INSERT INTO job_applications (user_id, job_id, notes) VALUES (?, ?, ?)`)
     .run(req.user!.id, jobId, req.body.notes || null);
@@ -257,3 +257,4 @@ router.post('/:id/apply', requireAuth, validate(z.object({
 }));
 
 export default router;
+

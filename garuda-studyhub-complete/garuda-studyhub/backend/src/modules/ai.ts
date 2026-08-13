@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { requireAuth, validate } from '../middleware';
 import { asyncHandler, ok } from '../utils/helpers';
 import { env } from '../config/env';
@@ -154,7 +154,7 @@ router.post('/chat', validate(z.object({
   let chatRow: any;
   let messages: ChatMessage[] = [];
   if (chatId) {
-    chatRow = prep('SELECT * FROM ai_chats WHERE id = ? AND user_id = ?').get(chatId, userId);
+    chatRow = await prep('SELECT * FROM ai_chats WHERE id = ? AND user_id = ?').get(chatId, userId);
     if (!chatRow) throw new (await import('../utils/helpers.js')).ApiError(404, 'Chat not found', 'NOT_FOUND');
     messages = parseJson<ChatMessage[]>(chatRow.messages, []);
   }
@@ -172,14 +172,14 @@ router.post('/chat', validate(z.object({
 
   let id: number;
   if (chatRow) {
-    prep(`UPDATE ai_chats SET messages = ?, updated_at = datetime('now') WHERE id = ?`)
+    await prep(`UPDATE ai_chats SET messages = ?, updated_at = datetime('now') WHERE id = ?`)
       .run(JSON.stringify(messages), chatRow.id);
     id = chatRow.id;
   } else {
     const title = message.slice(0, 60);
-    const info = prep(`INSERT INTO ai_chats (user_id, title, messages) VALUES (?, ?, ?)`)
+    const info = await prep(`INSERT INTO ai_chats (user_id, title, messages) VALUES (?, ?, ?)`)
       .run(userId, title, JSON.stringify(messages));
-    id = Number(info.lastInsertRowid);
+    id = Number(info.lastInsertRowid || (info.insertId ?? 0));
   }
 
   ok(res, { chatId: id, reply });
@@ -187,7 +187,7 @@ router.post('/chat', validate(z.object({
 
 // GET /api/ai/chats
 router.get('/chats', asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT id, title, created_at, updated_at FROM ai_chats WHERE user_id = ? ORDER BY updated_at DESC LIMIT 20`
   ).all(req.user!.id);
   ok(res, { chats: rows });
@@ -195,14 +195,14 @@ router.get('/chats', asyncHandler(async (req, res) => {
 
 // GET /api/ai/chats/:id
 router.get('/chats/:id', asyncHandler(async (req, res) => {
-  const row = prep('SELECT * FROM ai_chats WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user!.id);
+  const row = await prep('SELECT * FROM ai_chats WHERE id = ? AND user_id = ?').get(Number(req.params.id), req.user!.id);
   if (!row) throw new (await import('../utils/helpers.js')).ApiError(404, 'Chat not found', 'NOT_FOUND');
   ok(res, { chat: { id: row.id, title: row.title, messages: parseJson<ChatMessage[]>(row.messages, []) } });
 }));
 
 // DELETE /api/ai/chats/:id
 router.delete('/chats/:id', asyncHandler(async (req, res) => {
-  prep('DELETE FROM ai_chats WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user!.id);
+  await prep('DELETE FROM ai_chats WHERE id = ? AND user_id = ?').run(Number(req.params.id), req.user!.id);
   ok(res, { message: 'Chat deleted' });
 }));
 
@@ -234,16 +234,16 @@ router.post('/planner/generate', validate(z.object({
     };
   });
 
-  const info = prep(
+  const info = await prep(
     `INSERT INTO study_plans (user_id, title, exam, target_date, weekly_schedule) VALUES (?, ?, ?, ?, ?)`
   ).run(req.user!.id, `${exam} Preparation Plan`, exam, targetDate, JSON.stringify(weeklySchedule));
 
-  ok(res, { planId: Number(info.lastInsertRowid), weeklySchedule, exam, targetDate, dailyHours }, 201);
+  ok(res, { planId: Number(info.lastInsertRowid || (info.insertId ?? 0)), weeklySchedule, exam, targetDate, dailyHours }, 201);
 }));
 
 // GET /api/ai/plans
 router.get('/plans', asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT * FROM study_plans WHERE user_id = ? ORDER BY is_active DESC, created_at DESC`
   ).all(req.user!.id);
   ok(res, {
@@ -322,7 +322,7 @@ router.put('/planner/:id', validate(z.object({
   completedDay: z.number().optional(),
 })), asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const plan = prep('SELECT * FROM study_plans WHERE id = ? AND user_id = ?').get(id, req.user!.id);
+  const plan = await prep('SELECT * FROM study_plans WHERE id = ? AND user_id = ?').get(id, req.user!.id);
   if (!plan) throw new (await import('../utils/helpers.js')).ApiError(404, 'Plan not found', 'NOT_FOUND');
   const schedule = parseJson<any[]>(plan.weekly_schedule, []);
   if (req.body.completedDay !== undefined && schedule[req.body.completedDay]) {
@@ -337,3 +337,4 @@ router.put('/planner/:id', validate(z.object({
 }));
 
 export default router;
+

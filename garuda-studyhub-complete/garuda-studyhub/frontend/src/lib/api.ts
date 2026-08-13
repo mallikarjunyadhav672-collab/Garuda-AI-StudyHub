@@ -32,7 +32,7 @@ rawBase = (rawBase || '').trim();
 // Normalize: remove trailing slash
 let normalized = rawBase.replace(/\/$/, '');
 // If the base is an absolute host (starts with http) and doesn't include /api, append /api so requests hit the backend's /api mount
-if (/^https?:\/\//i.test(normalized) && !/\/api($|\/) /i.test(normalized)) {
+if (/^https?:\/\//i.test(normalized) && !/\/api($|\/)/i.test(normalized)) {
   normalized = normalized + '/api';
 }
 // If normalized is empty, default to /api
@@ -50,7 +50,7 @@ export const api = axios.create({
   timeout: Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000),
 });
 
-// Request interceptor: attach Bearer token when present
+// Request interceptor: attach access token when present
 api.interceptors.request.use((config) => {
   const token = storage.getAccess();
   if (token) {
@@ -119,3 +119,4 @@ export function errorMessage(err: unknown): string {
 export function handleError(err: unknown): string {
   return errorMessage(err);
 }
+

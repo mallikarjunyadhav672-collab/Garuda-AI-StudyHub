@@ -34,9 +34,11 @@ try {
 // 3. Database connection
 console.log('\n[3] MySQL database');
 try {
-  const { db } = require('../src/db/database.js');
-  const tables = (db.prepare('SELECT COUNT(*) as c FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE()').get() as { c: number }).c;
-  const users = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c;
+  const { db } = require('../src/db/database.pool');
+  const tablesRow = await db.prepare('SELECT COUNT(*) as c FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE()').get() as { c: number } | undefined;
+  const usersRow = await db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number } | undefined;
+  const tables = tablesRow?.c ?? 0;
+  const users = usersRow?.c ?? 0;
   pass(`MySQL CONNECTED — ${tables} tables, ${users} users (${env.dbHost}:${env.dbPort}/${env.dbName})`);
 } catch (e: any) {
   fail(`MySQL NOT connected — check backend/.env DB_* values: ${e.message}`);
@@ -86,7 +88,7 @@ import('../src/app.js').then(async ({ default: app }) => {
     // 6. No duplicate data (DB-level + API-level)
     console.log('\n[6] No duplicate data');
     try {
-      const { db } = await import('../src/db/database.js');
+      const { db } = await import('../src/db/database.pool');
       const dupChecks: [string, string, string][] = [
         ['users', 'email', 'duplicate emails'],
         ['jobs', 'role', 'duplicate jobs'],
@@ -98,7 +100,7 @@ import('../src/app.js').then(async ({ default: app }) => {
       ];
       let dupTotal = 0;
       for (const [table, col, label] of dupChecks) {
-        const rows: any[] = db
+        const rows: any[] = await db
           .prepare(
             `SELECT ${col} AS v, COUNT(*) AS c FROM ${table} GROUP BY ${col} HAVING COUNT(*) > 1`
           )

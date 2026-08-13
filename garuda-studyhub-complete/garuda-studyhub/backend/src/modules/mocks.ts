@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { requireAuth, requireAdmin, validate } from '../middleware';
 import { ApiError, asyncHandler, ok } from '../utils/helpers';
 
@@ -33,7 +33,7 @@ const mockSchema = z.object({
   questions: z.array(questionSchema).optional(),
 });
 
-function mapTest(row: any, withQuestions = false) {
+async function mapTest(row: any, withQuestions = false) {
   const t = {
     id: row.id,
     title: row.title,
@@ -53,7 +53,7 @@ function mapTest(row: any, withQuestions = false) {
     createdAt: row.created_at,
   };
   if (!withQuestions) return t;
-  const qs = prep('SELECT * FROM mock_questions WHERE test_id = ? ORDER BY sort_order').all(row.id);
+  const qs = await prep('SELECT * FROM mock_questions WHERE test_id = ? ORDER BY sort_order').all(row.id);
   return {
     ...t,
     questions: qs.map((q) => ({
@@ -84,18 +84,19 @@ router.get('/', asyncHandler(async (req, res) => {
   if (exam) { where.push('m.exam LIKE ?'); params.push(`%${exam}%`); }
   if (difficulty && difficulty !== 'All') { where.push('m.difficulty = ?'); params.push(difficulty); }
   if (search) { where.push('m.title LIKE ?'); params.push(`%${search}%`); }
-  const rows = prep(
+  const rows = await prep(
     `SELECT m.*, c.name as category_name FROM mock_tests m LEFT JOIN categories c ON c.id = m.category_id
      WHERE ${where.join(' AND ')} ORDER BY m.created_at DESC`
   ).all(...params);
-  const payload = { mocks: rows.map((r) => mapTest(r)) };
+  const mapped = await Promise.all(rows.map((r) => mapTest(r)));
+  const payload = { mocks: mapped };
   setCached(cacheKey, payload);
   ok(res, payload);
 }));
 
 // GET /api/mocks/categories
 router.get('/categories', asyncHandler(async (_req, res) => {
-  const cats = prep(`SELECT c.*, (SELECT COUNT(*) FROM mock_tests m WHERE m.category_id = c.id) as count
+  const cats = await prep(`SELECT c.*, (SELECT COUNT(*) FROM mock_tests m WHERE m.category_id = c.id) as count
     FROM categories c WHERE c.type = 'mock' ORDER BY c.sort_order`).all();
   ok(res, { categories: cats });
 }));
@@ -105,7 +106,7 @@ router.get('/leaderboard', asyncHandler(async (req, res) => {
   const { testId } = req.query as Record<string, string>;
   const where = testId ? 'AND ms.test_id = ?' : '';
   const params: unknown[] = testId ? [Number(testId)] : [];
-  const rows = prep(
+  const rows = await prep(
     `SELECT ms.id, ms.user_id, u.name, u.avatar, ms.score, ms.accuracy, ms.ranking, ms.created_at,
             mt.title as test_title, ms.test_id
      FROM mock_sessions ms JOIN users u ON u.id = ms.user_id
@@ -118,7 +119,7 @@ router.get('/leaderboard', asyncHandler(async (req, res) => {
 
 // GET /api/mocks/analytics
 router.get('/analytics', requireAuth, asyncHandler(async (req, res) => {
-  const sessions = prep(
+  const sessions = await prep(
     `SELECT ms.*, mt.title, mt.exam, mt.difficulty FROM mock_sessions ms
      JOIN mock_tests mt ON mt.id = ms.test_id
      WHERE ms.user_id = ? AND ms.is_completed = 1 ORDER BY ms.created_at ASC`
@@ -127,7 +128,7 @@ router.get('/analytics', requireAuth, asyncHandler(async (req, res) => {
   for (const s of sessions) {
     const answers = parseJson(s.answers, []) as any[];
     for (const a of answers) {
-      const q = prep('SELECT subject, marks FROM mock_questions WHERE id = ?').get(a.questionId);
+      const q = await prep('SELECT subject, marks FROM mock_questions WHERE id = ?').get(a.questionId);
       if (!q?.subject) continue;
       const key = q.subject;
       bySubject[key] = bySubject[key] || { correct: 0, total: 0, marks: 0 };
@@ -157,7 +158,7 @@ router.get('/analytics', requireAuth, asyncHandler(async (req, res) => {
 
 // GET /api/mocks/:id
 router.get('/:id', asyncHandler(async (req, res) => {
-  const row = prep('SELECT * FROM mock_tests WHERE id = ?').get(Number(req.params.id));
+  const row = await prep('SELECT * FROM mock_tests WHERE id = ?').get(Number(req.params.id));
   if (!row) throw new ApiError(404, 'Mock test not found', 'NOT_FOUND');
   ok(res, { mock: mapTest(row, true) });
 }));
@@ -167,36 +168,37 @@ router.post('/', requireAuth, requireAdmin, validate(mockSchema), asyncHandler(a
   const b = req.body;
   const qs = b.questions || [];
   const totalMarks = b.totalMarks || qs.reduce((a: number, q: any) => a + (q.marks || 1), 0);
-  const info = prep(
+  const info = await prep(
     `INSERT INTO mock_tests (title, type, exam, category_id, total_questions, duration, total_marks,
       negative_marking, is_live, live_date, difficulty, instructions, is_published, created_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(b.title, b.type, b.exam || null, b.categoryId || null, qs.length, b.duration,
     totalMarks, b.negativeMarking ?? 0.25, b.isLive ? 1 : 0, b.liveDate || null,
     b.difficulty || 'Medium', b.instructions || null, b.isPublished === false ? 0 : 1, req.user!.id);
-  const testId = Number(info.lastInsertRowid);
-  insertQuestions(testId, qs);
+  const testId = Number(info.lastInsertRowid || (info.insertId ?? 0));
+  await insertQuestions(testId, qs);
   ok(res, { id: testId }, 201);
 }));
 
-function insertQuestions(testId: number, qs: any[]) {
+async function insertQuestions(testId: number, qs: any[]) {
   const stmt = prep(
     `INSERT INTO mock_questions (test_id, question_text, options, correct_index, explanation, marks, negative_marks, subject, topic, sort_order)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  const tx = db.transaction(() => {
-    qs.forEach((q, i) => {
-      stmt.run(testId, q.questionText, JSON.stringify(q.options), q.correctIndex, q.explanation || null,
+  const tx = db.transaction(async () => {
+    for (let i = 0; i < qs.length; i++) {
+      const q = qs[i];
+      await stmt.run(testId, q.questionText, JSON.stringify(q.options), q.correctIndex, q.explanation || null,
         q.marks || 1, q.negativeMarks ?? 0.25, q.subject || null, q.topic || null, i);
-    });
+    }
   });
-  tx();
+  await tx();
 }
 
 // PUT /api/mocks/:id
 router.put('/:id', requireAuth, requireAdmin, validate(mockSchema.partial()), asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const existing = prep('SELECT * FROM mock_tests WHERE id = ?').get(id);
+  const existing = await prep('SELECT * FROM mock_tests WHERE id = ?').get(id);
   if (!existing) throw new ApiError(404, 'Mock test not found', 'NOT_FOUND');
   const b = req.body;
   const updates: Record<string, unknown> = {
@@ -207,7 +209,7 @@ router.put('/:id', requireAuth, requireAdmin, validate(mockSchema.partial()), as
     is_published: b.isPublished === undefined ? undefined : (b.isPublished ? 1 : 0),
   };
   if (b.questions) {
-    prep('DELETE FROM mock_questions WHERE test_id = ?').run(id);
+    await prep('DELETE FROM mock_questions WHERE test_id = ?').run(id);
     insertQuestions(id, b.questions);
     updates.total_questions = b.questions.length;
     if (!b.totalMarks) {
@@ -227,7 +229,7 @@ router.put('/:id', requireAuth, requireAdmin, validate(mockSchema.partial()), as
 
 // DELETE /api/mocks/:id
 router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const info = prep('DELETE FROM mock_tests WHERE id = ?').run(Number(req.params.id));
+  const info = await prep('DELETE FROM mock_tests WHERE id = ?').run(Number(req.params.id));
   if (info.changes === 0) throw new ApiError(404, 'Mock test not found', 'NOT_FOUND');
   ok(res, { message: 'Mock test deleted' });
 }));
@@ -235,11 +237,11 @@ router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) =
 // POST /api/mocks/:id/start — create a session
 router.post('/:id/start', requireAuth, asyncHandler(async (req, res) => {
   const testId = Number(req.params.id);
-  const test = prep('SELECT * FROM mock_tests WHERE id = ? AND is_published = 1').get(testId);
+  const test = await prep('SELECT * FROM mock_tests WHERE id = ? AND is_published = 1').get(testId);
   if (!test) throw new ApiError(404, 'Mock test not found', 'NOT_FOUND');
-  const info = prep(`INSERT INTO mock_sessions (user_id, test_id, start_time) VALUES (?, ?, datetime('now'))`)
+  const info = await prep(`INSERT INTO mock_sessions (user_id, test_id, start_time) VALUES (?, ?, datetime('now'))`)
     .run(req.user!.id, testId);
-  ok(res, { sessionId: Number(info.lastInsertRowid), startedAt: new Date().toISOString() }, 201);
+  ok(res, { sessionId: Number(info.lastInsertRowid || (info.insertId ?? 0)), startedAt: new Date().toISOString() }, 201);
 }));
 
 // POST /api/mocks/:id/submit — auto score
@@ -253,21 +255,21 @@ router.post('/:id/submit', requireAuth, validate(z.object({
   timeTaken: z.number().optional(),
 })), asyncHandler(async (req, res) => {
   const testId = Number(req.params.id);
-  const test = prep('SELECT * FROM mock_tests WHERE id = ?').get(testId);
+  const test = await prep('SELECT * FROM mock_tests WHERE id = ?').get(testId);
   if (!test) throw new ApiError(404, 'Mock test not found', 'NOT_FOUND');
 
   let sessionId = req.body.sessionId;
   if (sessionId) {
-    const s = prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
+    const s = await prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
     if (!s) throw new ApiError(404, 'Session not found', 'NOT_FOUND');
     if (s.is_completed) throw new ApiError(409, 'This session is already completed', 'ALREADY_SUBMITTED');
   } else {
-    const info = prep(`INSERT INTO mock_sessions (user_id, test_id, start_time) VALUES (?, ?, datetime('now'))`)
+    const info = await prep(`INSERT INTO mock_sessions (user_id, test_id, start_time) VALUES (?, ?, datetime('now'))`)
       .run(req.user!.id, testId);
-    sessionId = Number(info.lastInsertRowid);
+    sessionId = Number(info.lastInsertRowid || (info.insertId ?? 0));
   }
 
-  const questions = prep('SELECT * FROM mock_questions WHERE test_id = ?').all(testId) as any[];
+  const questions = await prep('SELECT * FROM mock_questions WHERE test_id = ?').all(testId) as any[];
   let score = 0;
   let correct = 0;
   let incorrect = 0;
@@ -287,11 +289,13 @@ router.post('/:id/submit', requireAuth, validate(z.object({
   const totalMarks = test.total_marks || questions.reduce((a: number, q: any) => a + q.marks, 0);
   const finalScore = Math.round(score * 100) / 100;
 
-  const participants = (prep('SELECT COUNT(*) as c FROM mock_sessions WHERE test_id = ? AND is_completed = 1').get(testId) as { c: number }).c + 1;
-  const better = (prep('SELECT COUNT(*) as c FROM mock_sessions WHERE test_id = ? AND is_completed = 1 AND score > ?').get(testId, finalScore) as { c: number }).c;
+  const participantsRow = await prep('SELECT COUNT(*) as c FROM mock_sessions WHERE test_id = ? AND is_completed = 1').get(testId) as { c: number } | undefined;
+  const participants = Number(participantsRow?.c ?? 0) + 1;
+  const betterRow = await prep('SELECT COUNT(*) as c FROM mock_sessions WHERE test_id = ? AND is_completed = 1 AND score > ?').get(testId, finalScore) as { c: number } | undefined;
+  const better = Number(betterRow?.c ?? 0);
   const rank = better + 1;
 
-  prep(
+  await prep(
     `UPDATE mock_sessions SET is_completed = 1, end_time = datetime('now'), time_taken = ?, score = ?,
        total_marks = ?, correct = ?, incorrect = ?, unanswered = ?, accuracy = ?, ranking = ?, total_participants = ?, answers = ?
      WHERE id = ?`
@@ -299,13 +303,13 @@ router.post('/:id/submit', requireAuth, validate(z.object({
     JSON.stringify(answerRows), sessionId);
 
   // Update test aggregate stats
-  const agg = prep(
+  const agg = await prep(
     `SELECT COUNT(*) as c, AVG(score) as avgScore FROM mock_sessions WHERE test_id = ? AND is_completed = 1`
-  ).get(testId) as { c: number; avgScore: number };
-  prep(`UPDATE mock_tests SET attempts = ?, avg_score = ? WHERE id = ?`).run(agg.c, agg.avgScore || 0, testId);
+  ).get(testId) as { c: number; avgScore: number } | undefined;
+  await prep(`UPDATE mock_tests SET attempts = ?, avg_score = ? WHERE id = ?`).run(agg?.c ?? 0, agg?.avgScore || 0, testId);
 
   // Update user study stats + notify
-  prep(`INSERT INTO notifications (user_id, type, title, body) VALUES (?, 'mock_result', ?, ?)`)
+  await prep(`INSERT INTO notifications (user_id, type, title, body) VALUES (?, 'mock_result', ?, ?)`)
     .run(req.user!.id, 'Mock test completed 📊',
       `${test.title} — Score: ${finalScore}/${totalMarks}, Rank: #${rank} of ${participants}`);
 
@@ -315,9 +319,9 @@ router.post('/:id/submit', requireAuth, validate(z.object({
 // GET /api/mocks/:id/result
 router.get('/:id/result', requireAuth, asyncHandler(async (req, res) => {
   const sessionId = Number(req.params.id);
-  const s = prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
+  const s = await prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
   if (!s) throw new ApiError(404, 'Result not found', 'NOT_FOUND');
-  const test = prep('SELECT * FROM mock_tests WHERE id = ?').get(s.test_id);
+  const test = await prep('SELECT * FROM mock_tests WHERE id = ?').get(s.test_id);
   ok(res, {
     result: {
       id: s.id,
@@ -341,9 +345,9 @@ router.get('/:id/result', requireAuth, asyncHandler(async (req, res) => {
 // GET /api/mocks/:id/solutions
 router.get('/:id/solutions', requireAuth, asyncHandler(async (req, res) => {
   const sessionId = Number(req.params.id);
-  const s = prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
+  const s = await prep('SELECT * FROM mock_sessions WHERE id = ? AND user_id = ?').get(sessionId, req.user!.id);
   if (!s) throw new ApiError(404, 'Result not found', 'NOT_FOUND');
-  const questions = prep('SELECT * FROM mock_questions WHERE test_id = ? ORDER BY sort_order').all(s.test_id) as any[];
+  const questions = await prep('SELECT * FROM mock_questions WHERE test_id = ? ORDER BY sort_order').all(s.test_id) as any[];
   const answers = parseJson<Record<number, number>>(s.answers as string, {});
   const solutions = questions.map((q) => ({
     id: q.id,
@@ -361,3 +365,4 @@ router.get('/:id/solutions', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 export default router;
+

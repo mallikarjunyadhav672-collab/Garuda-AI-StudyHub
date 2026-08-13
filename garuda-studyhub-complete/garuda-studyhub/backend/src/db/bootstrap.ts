@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs';
-import { db, prep } from './database';
+import { db, prep } from './database.pool';
 
 /**
  * Ensures the default accounts exist on every server boot.
@@ -19,18 +19,18 @@ export async function ensureDefaultUsers() {
     const passwordHash = await bcrypt.hash(password, 12);
 
     if (role === 'admin') {
-      const existingAdmin = prep(`SELECT * FROM users WHERE role = 'admin' OR role = 'superadmin' LIMIT 1`).get() as { id: number } | undefined;
+      const existingAdmin = await prep(`SELECT * FROM users WHERE role = 'admin' OR role = 'superadmin' LIMIT 1`).get() as { id: number } | undefined;
       if (existingAdmin) {
-        prep(
+        await prep(
           `UPDATE users SET name = ?, email = ?, phone = ?, password_hash = ?, exam_target = ?, is_verified = 1, is_premium = ? WHERE id = ?`
         ).run(name, email, null, passwordHash, examTarget, isPremium, existingAdmin.id);
-        prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(existingAdmin.id);
+        await prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(existingAdmin.id);
         console.log(`   └─ Updated default admin account to ${email}`);
         return;
       }
     }
 
-    const info = prep(
+    await prep(
       `INSERT INTO users (name, email, phone, password_hash, role, exam_target, is_verified, is_premium)
        VALUES (?, ?, ?, ?, ?, ?, 1, ?)
        ON DUPLICATE KEY UPDATE
@@ -42,9 +42,12 @@ export async function ensureDefaultUsers() {
          is_verified = 1,
          is_premium = VALUES(is_premium)`
     ).run(name, email, null, passwordHash, role, examTarget, isPremium);
-    const userId = Number(info.lastInsertRowid || 0);
+    const info = await prep(
+      `SELECT id FROM users WHERE lower(email) = lower(?) ORDER BY id DESC LIMIT 1`
+    ).get(email);
+    const userId = Number(info?.id ?? 0);
     if (userId > 0) {
-      prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
+      await prep('INSERT OR IGNORE INTO user_preferences (user_id) VALUES (?)').run(userId);
     }
     console.log(`   └─ Ensured default ${role} account: ${email}`);
   };
@@ -55,10 +58,11 @@ export async function ensureDefaultUsers() {
 /** If the DB has no content at all (fresh install), seed the starter set
  *  automatically so the app is never empty. */
 export async function seedIfEmpty() {
-  const row = prep('SELECT COUNT(*) as c FROM jobs').get() as { c?: number } | undefined;
+  const row = await prep('SELECT COUNT(*) as c FROM jobs').get() as { c?: number } | undefined;
   const jobs = Number(row?.c ?? 0);
   if (jobs > 0) return; // already seeded
   console.log('   └─ Empty database detected — seeding starter content…');
   const { seedAll } = await import('./seed.js');
   await seedAll();
 }
+

@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { optionalAuth, requireAuth, requireAdmin, validate } from '../middleware';
 import { ApiError, asyncHandler, ok } from '../utils/helpers';
 
@@ -67,12 +67,12 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
     : '0';
   if (req.user) params.unshift(req.user.id);
 
-  const totalRow = prep(`SELECT COUNT(*) as c FROM materials m LEFT JOIN categories c ON c.id = m.category_id WHERE ${where.join(' AND ')}`).get(...countParams) as { c?: number } | undefined;
+  const totalRow = await prep(`SELECT COUNT(*) as c FROM materials m LEFT JOIN categories c ON c.id = m.category_id WHERE ${where.join(' AND ')}`).get(...countParams) as { c?: number } | undefined;
   const total = Number(totalRow?.c ?? 0);
   const p = Math.max(1, parseInt(page) || 1);
   const l = Math.min(50, Math.max(1, parseInt(limit) || 12));
 
-  const rows = prep(
+  const rows = await prep(
     `SELECT m.*, c.name as category_name, ${bmSub} as bookmarked FROM materials m
      LEFT JOIN categories c ON c.id = m.category_id
      WHERE ${where.join(' AND ')} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
@@ -85,7 +85,7 @@ router.get('/', optionalAuth, asyncHandler(async (req, res) => {
 
 // GET /api/materials/categories
 router.get('/categories', asyncHandler(async (_req, res) => {
-  const cats = prep(`SELECT c.*, (SELECT COUNT(*) FROM materials m WHERE m.category_id = c.id AND m.is_published = 1) as count
+  const cats = await prep(`SELECT c.*, (SELECT COUNT(*) FROM materials m WHERE m.category_id = c.id AND m.is_published = 1) as count
     FROM categories c WHERE c.type = 'material' ORDER BY c.sort_order`).all();
   ok(res, { categories: cats });
 }));
@@ -94,7 +94,7 @@ router.get('/categories', asyncHandler(async (_req, res) => {
 router.get('/popular', optionalAuth, asyncHandler(async (req, res) => {
   const bmSub = req.user ? `(SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'material' AND si.entity_id = m.id)` : '0';
   const params: unknown[] = req.user ? [req.user.id] : [];
-  const rows = prep(
+  const rows = await prep(
     `SELECT m.*, c.name as category_name, ${bmSub} as bookmarked FROM materials m
      LEFT JOIN categories c ON c.id = m.category_id WHERE m.is_published = 1
      ORDER BY m.downloads DESC LIMIT 8`
@@ -104,7 +104,7 @@ router.get('/popular', optionalAuth, asyncHandler(async (req, res) => {
 
 // GET /api/materials/bookmarks
 router.get('/bookmarks', requireAuth, asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT m.*, c.name as category_name, 1 as bookmarked FROM saved_items si
      JOIN materials m ON m.id = si.entity_id LEFT JOIN categories c ON c.id = m.category_id
      WHERE si.user_id = ? AND si.entity_type = 'material' ORDER BY si.created_at DESC`
@@ -114,7 +114,7 @@ router.get('/bookmarks', requireAuth, asyncHandler(async (req, res) => {
 
 // GET /api/materials/downloads — download history
 router.get('/downloads', requireAuth, asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT md.id, md.created_at, m.id as materialId, m.title, m.file_type, m.file_size
      FROM material_downloads md JOIN materials m ON m.id = md.material_id
      WHERE md.user_id = ? ORDER BY md.created_at DESC`
@@ -127,7 +127,7 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bmSub = req.user ? `(SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'material' AND si.entity_id = m.id)` : '0';
   const params: unknown[] = req.user ? [req.user.id, id] : [id];
-  const row = prep(
+  const row = await prep(
     `SELECT m.*, c.name as category_name, ${bmSub} as bookmarked FROM materials m
      LEFT JOIN categories c ON c.id = m.category_id WHERE m.id = ?`
   ).get(...params);
@@ -138,16 +138,20 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
 // POST /api/materials
 router.post('/', requireAuth, requireAdmin, validate(materialSchema), asyncHandler(async (req, res) => {
   const b = req.body;
-  const info = prep(
+  const info = await prep(
     `INSERT INTO materials (title, description, category_id, exam, pages, file_url, file_size, file_type, tags, uploaded_by, is_published)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(b.title, b.description, b.categoryId, b.exam, b.pages || 0, b.fileUrl || null,
     b.fileSize || 0, b.fileType || 'pdf', JSON.stringify(b.tags || []), req.user!.id, b.isPublished === false ? 0 : 1);
   if (b.isPublished !== false) {
-    const users = prep('SELECT id FROM users WHERE role = ?').all('user') as { id: number }[];
+    const users = await prep('SELECT id FROM users WHERE role = ?').all('user') as { id: number }[];
     const stmt = prep(`INSERT INTO notifications (user_id, type, title, body) VALUES (?, 'material', ?, ?)`);
-    const tx = db.transaction(() => users.forEach((u) => stmt.run(u.id, 'New study material added: ' + b.title, b.description || 'Check it out in the Materials section.')));
-    tx();
+    const tx = db.transaction(async () => {
+      for (const u of users) {
+        await stmt.run(u.id, 'New study material added: ' + b.title, b.description || 'Check it out in the Materials section.');
+      }
+    });
+    await tx();
   }
   ok(res, { id: Number(info.lastInsertRowid) }, 201);
 }));
@@ -155,7 +159,7 @@ router.post('/', requireAuth, requireAdmin, validate(materialSchema), asyncHandl
 // PUT /api/materials/:id
 router.put('/:id', requireAuth, requireAdmin, validate(materialSchema.partial()), asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const existing = prep('SELECT id FROM materials WHERE id = ?').get(id);
+  const existing = await prep('SELECT id FROM materials WHERE id = ?').get(id);
   if (!existing) throw new ApiError(404, 'Material not found', 'NOT_FOUND');
   const b = req.body;
   const updates: Record<string, unknown> = {
@@ -171,13 +175,13 @@ router.put('/:id', requireAuth, requireAdmin, validate(materialSchema.partial())
   }
   set.push(`updated_at = datetime('now')`);
   vals.push(id);
-  prep(`UPDATE materials SET ${set.join(', ')} WHERE id = ?`).run(...vals);
+  await prep(`UPDATE materials SET ${set.join(', ')} WHERE id = ?`).run(...vals);
   ok(res, { message: 'Material updated' });
 }));
 
 // DELETE /api/materials/:id
 router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const info = prep('DELETE FROM materials WHERE id = ?').run(Number(req.params.id));
+  const info = await prep('DELETE FROM materials WHERE id = ?').run(Number(req.params.id));
   if (info.changes === 0) throw new ApiError(404, 'Material not found', 'NOT_FOUND');
   ok(res, { message: 'Material deleted' });
 }));
@@ -185,7 +189,7 @@ router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) =
 // POST /api/materials/:id/bookmark
 router.post('/:id/bookmark', requireAuth, asyncHandler(async (req, res) => {
   const mid = Number(req.params.id);
-  const m = prep('SELECT id FROM materials WHERE id = ?').get(mid);
+  const m = await prep('SELECT id FROM materials WHERE id = ?').get(mid);
   if (!m) throw new ApiError(404, 'Material not found', 'NOT_FOUND');
   prep(`INSERT OR IGNORE INTO saved_items (user_id, entity_type, entity_id) VALUES (?, 'material', ?)`)
     .run(req.user!.id, mid);
@@ -202,11 +206,12 @@ router.delete('/:id/bookmark', requireAuth, asyncHandler(async (req, res) => {
 // GET /api/materials/:id/download — track download
 router.get('/:id/download', requireAuth, asyncHandler(async (req, res) => {
   const mid = Number(req.params.id);
-  const m = prep('SELECT * FROM materials WHERE id = ?').get(mid);
+  const m = await prep('SELECT * FROM materials WHERE id = ?').get(mid);
   if (!m) throw new ApiError(404, 'Material not found', 'NOT_FOUND');
   prep(`INSERT INTO material_downloads (user_id, material_id) VALUES (?, ?)`).run(req.user!.id, mid);
-  prep(`UPDATE materials SET downloads = downloads + 1 WHERE id = ?`).run(mid);
+  await prep(`UPDATE materials SET downloads = downloads + 1 WHERE id = ?`).run(mid);
   ok(res, { fileUrl: m.file_url || '#', downloads: m.downloads + 1 });
 }));
 
 export default router;
+

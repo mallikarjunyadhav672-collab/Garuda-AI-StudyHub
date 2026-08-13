@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { requireAuth, requireAdmin, validate } from '../middleware';
 import { ApiError, asyncHandler, ok } from '../utils/helpers';
 
@@ -55,7 +55,7 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
   if (category) { where.push('c.slug = ?'); params.push(category); }
   if (search) { where.push('(v.title LIKE ? OR v.educator LIKE ? OR v.exam LIKE ?)'); const like = `%${search}%`; params.push(like, like, like); }
   const orderBy = sort === 'popular' ? 'v.views DESC' : 'v.created_at DESC';
-  const rows = prep(
+  const rows = await prep(
     `SELECT v.*, c.name as category_name,
       (SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'video' AND si.entity_id = v.id) as saved,
       (SELECT progress_seconds FROM video_progress vp WHERE vp.user_id = ? AND vp.video_id = v.id) as progress_seconds
@@ -69,14 +69,14 @@ router.get('/', requireAuth, asyncHandler(async (req, res) => {
 
 // GET /api/videos/categories
 router.get('/categories', asyncHandler(async (_req, res) => {
-  const cats = prep(`SELECT c.*, (SELECT COUNT(*) FROM videos v WHERE v.category_id = c.id AND v.is_published = 1) as count
+  const cats = await prep(`SELECT c.*, (SELECT COUNT(*) FROM videos v WHERE v.category_id = c.id AND v.is_published = 1) as count
     FROM categories c WHERE c.type = 'video' ORDER BY c.sort_order`).all();
   ok(res, { categories: cats });
 }));
 
 // GET /api/videos/playlists
 router.get('/playlists', asyncHandler(async (_req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT playlist, COUNT(*) as videoCount, COALESCE(SUM(duration),0) as totalDuration, MIN(thumbnail_color) as thumbnail_color
      FROM videos WHERE is_published = 1 AND playlist IS NOT NULL GROUP BY playlist ORDER BY videoCount DESC`
   ).all();
@@ -85,7 +85,7 @@ router.get('/playlists', asyncHandler(async (_req, res) => {
 
 // GET /api/videos/saved
 router.get('/saved', requireAuth, asyncHandler(async (req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT v.*, c.name as category_name, 1 as saved FROM saved_items si
      JOIN videos v ON v.id = si.entity_id LEFT JOIN categories c ON c.id = v.category_id
      WHERE si.user_id = ? AND si.entity_type = 'video' ORDER BY si.created_at DESC`
@@ -96,39 +96,43 @@ router.get('/saved', requireAuth, asyncHandler(async (req, res) => {
 // GET /api/videos/:id
 router.get('/:id', requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const row = prep(
+  const row = await prep(
     `SELECT v.*, c.name as category_name,
       (SELECT 1 FROM saved_items si WHERE si.user_id = ? AND si.entity_type = 'video' AND si.entity_id = v.id) as saved,
       (SELECT progress_seconds FROM video_progress vp WHERE vp.user_id = ? AND vp.video_id = v.id) as progress_seconds
      FROM videos v LEFT JOIN categories c ON c.id = v.category_id WHERE v.id = ?`
   ).get(req.user!.id, req.user!.id, id);
   if (!row) throw new ApiError(404, 'Video not found', 'NOT_FOUND');
-  prep('UPDATE videos SET views = views + 1 WHERE id = ?').run(id);
+  await prep('UPDATE videos SET views = views + 1 WHERE id = ?').run(id);
   ok(res, { video: mapVideo(row, req.user!.id) });
 }));
 
 // POST /api/videos
 router.post('/', requireAuth, requireAdmin, validate(videoSchema), asyncHandler(async (req, res) => {
   const b = req.body;
-  const info = prep(
+  const info = await prep(
     `INSERT INTO videos (title, description, category_id, playlist, video_url, thumbnail_color, duration, educator, exam, tags, is_published, created_by)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(b.title, b.description || null, b.categoryId || null, b.playlist || null, b.videoUrl || null,
     b.thumbnailColor || null, b.duration || 0, b.educator || null, b.exam || null,
     JSON.stringify(b.tags || []), b.isPublished === false ? 0 : 1, req.user!.id);
   if (b.isPublished !== false) {
-    const users = prep('SELECT id FROM users WHERE role = ?').all('user') as { id: number }[];
+    const users = await prep('SELECT id FROM users WHERE role = ?').all('user') as { id: number }[];
     const stmt = prep(`INSERT INTO notifications (user_id, type, title, body) VALUES (?, 'course', ?, ?)`);
-    const tx = db.transaction(() => users.forEach((u) => stmt.run(u.id, 'New course added: ' + b.title, b.description || 'A new video course is available now.')));
-    tx();
+    const tx = db.transaction(async () => {
+      for (const u of users) {
+        await stmt.run(u.id, 'New course added: ' + b.title, b.description || 'A new video course is available now.');
+      }
+    });
+    await tx();
   }
-  ok(res, { id: Number(info.lastInsertRowid) }, 201);
+  ok(res, { id: Number(info.lastInsertRowid || (info.insertId ?? 0)) }, 201);
 }));
 
 // PUT /api/videos/:id
 router.put('/:id', requireAuth, requireAdmin, validate(videoSchema.partial()), asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
-  const existing = prep('SELECT id FROM videos WHERE id = ?').get(id);
+  const existing = await prep('SELECT id FROM videos WHERE id = ?').get(id);
   if (!existing) throw new ApiError(404, 'Video not found', 'NOT_FOUND');
   const b = req.body;
   const updates: Record<string, unknown> = {
@@ -149,7 +153,7 @@ router.put('/:id', requireAuth, requireAdmin, validate(videoSchema.partial()), a
 
 // DELETE /api/videos/:id
 router.delete('/:id', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
-  const info = prep('DELETE FROM videos WHERE id = ?').run(Number(req.params.id));
+  const info = await prep('DELETE FROM videos WHERE id = ?').run(Number(req.params.id));
   if (info.changes === 0) throw new ApiError(404, 'Video not found', 'NOT_FOUND');
   ok(res, { message: 'Video deleted' });
 }));
@@ -179,3 +183,4 @@ router.delete('/:id/save', requireAuth, asyncHandler(async (req, res) => {
 }));
 
 export default router;
+

@@ -1,31 +1,31 @@
-import bcrypt from 'bcryptjs';
+﻿import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
-import { db, initSchema } from './database';
+import { db } from './database.pool';
 
-initSchema();
+// initSchema is not run here; migrations/schema are expected to be present in production.
 
-function getCategoryId(slug: string): number | undefined {
-  const row = db.prepare('SELECT id FROM categories WHERE slug = ? ORDER BY id LIMIT 1').get(slug) as { id?: number } | undefined;
+async function getCategoryId(slug: string): Promise<number | undefined> {
+  const row = await db.prepare('SELECT id FROM categories WHERE slug = ? ORDER BY id LIMIT 1').get(slug) as { id?: number } | undefined;
   return row?.id != null ? Number(row.id) : undefined;
 }
 
-function hasRows(tableName: string): boolean {
-  const row = db.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c?: number } | undefined;
+async function hasRows(tableName: string): Promise<boolean> {
+  const row = await db.prepare(`SELECT COUNT(*) as c FROM ${tableName}`).get() as { c?: number } | undefined;
   return Number(row?.c ?? 0) > 0;
 }
 
 // ---------------------------------------------------------------------------
 // Seed all demo content. Safe to call repeatedly — skips if already seeded.
 // ---------------------------------------------------------------------------
-function ensureCategoryId(slug: string): number {
-  const categoryId = getCategoryId(slug);
+async function ensureCategoryId(slug: string): Promise<number> {
+  const categoryId = await getCategoryId(slug);
   if (categoryId != null) {
     return categoryId;
   }
 
-  seedCategories();
+  await seedCategories();
 
-  const fallbackCategoryId = getCategoryId(slug);
+  const fallbackCategoryId = await getCategoryId(slug);
   if (fallbackCategoryId != null) {
     return fallbackCategoryId;
   }
@@ -34,11 +34,12 @@ function ensureCategoryId(slug: string): number {
     .split('-')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-  const info = db.prepare(
+  await db.prepare(
     `INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, 'default', ?, 'tag', 9999)`
   ).run(fallbackName, slug, `Auto-created category for ${slug}`);
 
-  const insertedId = Number(info.lastInsertRowid ?? 0);
+  const info = await db.prepare(`SELECT id FROM categories WHERE slug = ? ORDER BY id DESC LIMIT 1`).get(slug);
+  const insertedId = Number(info?.id ?? 0);
   if (insertedId > 0) {
     return insertedId;
   }
@@ -48,22 +49,24 @@ function ensureCategoryId(slug: string): number {
 
 export async function seedAll() {
   try {
-    const isSeeded = ['categories', 'jobs', 'materials', 'mock_tests', 'quiz_questions', 'affairs', 'videos'].every((tableName) => hasRows(tableName));
+    const tables = ['categories', 'jobs', 'materials', 'mock_tests', 'quiz_questions', 'affairs', 'videos'];
+    const statuses = await Promise.all(tables.map((t) => hasRows(t)));
+    const isSeeded = statuses.every(Boolean);
     if (isSeeded) {
       console.log('Database already seeded — skipping duplicate seed run.');
       return;
     }
 
     console.log('🌱 Seeding Garuda AI StudyHub...');
-    seedCategories();
+    await seedCategories();
 
     const { adminId } = await seedUsers();
-    seedJobs(adminId);
-    seedMaterials(adminId);
-    seedMocks(adminId);
-    seedQuiz();
-    seedAffairs(adminId);
-    seedVideos(adminId);
+    await seedJobs(adminId);
+    await seedMaterials(adminId);
+    await seedMocks(adminId);
+    await seedQuiz();
+    await seedAffairs(adminId);
+    await seedVideos(adminId);
     console.log('✅ Seed complete.');
   } catch (error) {
     console.error('Seed failed gracefully; app will continue without demo data:', error);
@@ -77,10 +80,12 @@ async function seedUsers() {
   const adminHash = await bcrypt.hash('Admin@123', 12);
   const userHash = await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 12);
 
-  const existingAdmin = db.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').get('admin@garuda.ai') as { id: number } | undefined;
-  const adminId = existingAdmin
-    ? existingAdmin.id
-    : Number(db.prepare(
+  const existingAdmin = await db.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').get('admin@garuda.ai') as { id: number } | undefined;
+  let adminId: number;
+  if (existingAdmin) {
+    adminId = existingAdmin.id;
+  } else {
+    const info = await db.prepare(
       `INSERT INTO users (name, email, phone, password_hash, role, exam_target, is_verified, is_premium)
        VALUES (?, ?, ?, ?, 'admin', ?, 1, 1)
        ON DUPLICATE KEY UPDATE
@@ -91,7 +96,10 @@ async function seedUsers() {
          exam_target = VALUES(exam_target),
          is_verified = 1,
          is_premium = 1`
-    ).run('Admin Garuda', 'admin@garuda.ai', '9000011111', adminHash, 'SSC CGL').lastInsertRowid);
+    ).run('Admin Garuda', 'admin@garuda.ai', '9000011111', adminHash, 'SSC CGL');
+    const row = await db.prepare('SELECT id FROM users WHERE lower(email) = lower(?) ORDER BY id DESC LIMIT 1').get('admin@garuda.ai');
+    adminId = Number(row?.id ?? 0);
+  }
 
   const others = [
     ['Rahul Sharma', 'rahul@test.in', '9000033333', 'UPSC CSE'],
@@ -113,19 +121,19 @@ async function seedUsers() {
       is_verified = 1
   `);
   for (const [name, email, phone, exam] of others) {
-    const existing = db.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').get(email) as { id: number } | undefined;
+    const existing = await db.prepare('SELECT id FROM users WHERE lower(email) = lower(?)').get(email) as { id: number } | undefined;
     if (existing) continue;
-    stmt.run(name, email, phone, userHash, exam);
+    await stmt.run(name, email, phone, userHash, exam);
   }
 
-  db.prepare(`INSERT IGNORE INTO user_preferences (user_id) VALUES (?)`).run(adminId);
+  await db.prepare(`INSERT IGNORE INTO user_preferences (user_id) VALUES (?)`).run(adminId);
   return { adminId };
 }
 
 // ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
-function seedCategories() {
+async function seedCategories() {
   const cats: [string, string, string, string, string][] = [
     // [name, slug, type, description, icon]
     ['SSC', 'ssc', 'job', 'Staff Selection Commission exams', 'briefcase'],
@@ -159,23 +167,24 @@ function seedCategories() {
   const insertStmt = db.prepare(`INSERT INTO categories (name, slug, type, description, icon, sort_order) VALUES (?, ?, ?, ?, ?, ?)`);
   const updateStmt = db.prepare(`UPDATE categories SET name = ?, type = ?, description = ?, icon = ?, sort_order = ? WHERE id = ?`);
 
-  cats.forEach((c, i) => {
+  for (let i = 0; i < cats.length; i++) {
+    const c = cats[i];
     const [name, slug, type, description, icon] = c;
-    const existingRows = selectStmt.all(slug) as Array<{ id: number }>;
+    const existingRows = await selectStmt.all(slug) as Array<{ id: number }>;
     const targetId = existingRows[0]?.id;
 
     if (targetId != null) {
-      updateStmt.run(name, type, description, icon, i, targetId);
+      await updateStmt.run(name, type, description, icon, i, targetId);
     } else {
-      insertStmt.run(name, slug, type, description, icon, i);
+      await insertStmt.run(name, slug, type, description, icon, i);
     }
-  });
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Jobs
 // ---------------------------------------------------------------------------
-function seedJobs(adminId: number) {
+async function seedJobs(adminId: number) {
   const jobs = [
     {
       org: 'SSC', role: 'Combined Graduate Level (CGL) 2025', exam: 'SSC CGL', posts: 17727,
@@ -319,7 +328,7 @@ function seedJobs(adminId: number) {
   );
   for (const j of jobs) {
     const categoryId = ensureCategoryId(j.category);
-    stmt.run(j.org, j.role, j.exam, j.posts, j.lastDate, j.qualification, j.location, j.salary,
+    await stmt.run(j.org, j.role, j.exam, j.posts, j.lastDate, j.qualification, j.location, j.salary,
       categoryId, j.department, j.state, j.jobType, j.status, j.featured, j.trend, j.ageLimit,
       j.applicationFee, JSON.stringify(j.selectionProcess), JSON.stringify(j.eligibility),
       j.description, j.noticeUrl, adminId);
@@ -329,7 +338,7 @@ function seedJobs(adminId: number) {
 // ---------------------------------------------------------------------------
 // Materials
 // ---------------------------------------------------------------------------
-function seedMaterials(adminId: number) {
+async function seedMaterials(adminId: number) {
   const mats = [
     ['SSC CGL Tier-1 Complete Syllabus & Strategy Notes', 'Comprehensive syllabus breakdown with topic-wise weightage and a 90-day strategy for SSC CGL Tier-1. Includes study plan and book recommendations.', 'quant', 'SSC CGL', 142, 8.4, 'pdf', ['syllabus', 'strategy', 'ssc']],
     ['Quantitative Aptitude Formula Handbook', 'All formulas for percentage, profit & loss, time & work, SI/CI, mensuration, algebra and more — with 500+ solved examples and practice sets.', 'quant', 'All Exams', 268, 18.2, 'pdf', ['maths', 'formulas', 'aptitude']],
@@ -344,16 +353,18 @@ function seedMaterials(adminId: number) {
     `INSERT INTO materials (title, description, category_id, exam, pages, file_size, file_type, tags, uploaded_by, downloads, rating, rating_count)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
-  mats.forEach((m, i) => {
+  for (let i = 0; i < mats.length; i++) {
+    const m = mats[i];
     const categoryId = ensureCategoryId(String(m[2]));
-    stmt.run(m[0], m[1], categoryId, m[3], m[4], (Number(m[5])) * 1024 * 1024, m[6], JSON.stringify(m[7]), adminId, 1200 - i * 130, 4.5 + (i % 4) * 0.1, 200 + i * 30);
-  });
+    await stmt.run(m[0], m[1], categoryId, m[3], m[4], (Number(m[5])) * 1024 * 1024, m[6], JSON.stringify(m[7]), adminId, 1200 - i * 130, 4.5 + (i % 4) * 0.1, 200 + i * 30);
+  }
 }
+
 
 // ---------------------------------------------------------------------------
 // Mock tests + questions
 // ---------------------------------------------------------------------------
-function seedMocks(adminId: number) {
+async function seedMocks(adminId: number) {
   const q = (text: string, options: string[], correct: number, expl: string, subject: string, marks = 1, neg = 0.25) =>
     ({ questionText: text, options, correctIndex: correct, explanation: expl, subject, marks, negativeMarks: neg });
 
@@ -457,22 +468,23 @@ function seedMocks(adminId: number) {
 
   for (const t of tests) {
     const categoryId = ensureCategoryId(t.category);
-    const info = db.prepare(
+    const info = await db.prepare(
       `INSERT INTO mock_tests (title, type, exam, category_id, total_questions, duration, total_marks,
         negative_marking, is_live, difficulty, instructions, is_published, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`
     ).run(t.title, t.type, t.exam, categoryId, t.questions.length, t.duration,
       t.questions.reduce((a: number, x: any) => a + x.marks, 0), t.negativeMarking,
       t.isLive, t.difficulty, t.instructions, adminId);
-    const testId = Number(info.lastInsertRowid);
+    const testId = Number(info.lastInsertRowid || (info.insertId ?? 0));
     const stmt = db.prepare(
       `INSERT INTO mock_questions (test_id, question_text, options, correct_index, explanation, marks, negative_marks, subject, topic, sort_order)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     );
-    t.questions.forEach((qq: any, i: number) => {
-      stmt.run(testId, qq.questionText, JSON.stringify(qq.options), qq.correctIndex, qq.explanation,
+    for (let i = 0; i < t.questions.length; i++) {
+      const qq = t.questions[i];
+      await stmt.run(testId, qq.questionText, JSON.stringify(qq.options), qq.correctIndex, qq.explanation,
         qq.marks, qq.negativeMarks, qq.subject, qq.topic || qq.subject, i);
-    });
+    }
   }
 }
 
@@ -570,3 +582,5 @@ if (isDirectRun) {
     process.exit(1);
   });
 }
+
+

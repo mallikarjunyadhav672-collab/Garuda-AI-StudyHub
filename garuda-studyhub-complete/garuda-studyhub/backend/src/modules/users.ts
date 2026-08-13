@@ -1,28 +1,28 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { db, prep, parseJson } from '../db/database';
+import { db, prep, parseJson } from '../db/database.pool';
 import { requireAuth, requireAdmin, validate } from '../middleware';
 import { ApiError, asyncHandler, ok } from '../utils/helpers';
 
 const router = Router();
 router.use(requireAuth);
 
-function getStats(userId: number) {
-  const streak = db
+async function getStats(userId: number) {
+  const streak = await db
     .prepare(
       `SELECT COUNT(DISTINCT date) as days FROM quiz_attempts
        WHERE user_id = ? AND date >= date('now','-6 days')`
     )
     .get(userId) as { days: number };
-  const mocks = db
+  const mocks = await db
     .prepare(
       `SELECT COUNT(*) as total, AVG(accuracy) as avgAcc FROM mock_sessions WHERE user_id = ? AND is_completed = 1`
     )
     .get(userId) as { total: number; avgAcc: number };
-  const quizzes = db
+  const quizzes = await db
     .prepare(`SELECT COUNT(*) as total, COALESCE(SUM(score),0) as score, SUM(total_questions) as q FROM quiz_attempts WHERE user_id = ?`)
     .get(userId) as { total: number; score: number; q: number };
-  const studyTime = db
+  const studyTime = await db
     .prepare(
       `SELECT COALESCE(SUM(time_taken),0) as t FROM (
          SELECT time_taken FROM mock_sessions WHERE user_id = ? AND is_completed = 1
@@ -31,7 +31,7 @@ function getStats(userId: number) {
        )`
     )
     .get(userId, userId) as { t: number };
-  const rank = db
+  const rank = await db
     .prepare(
       `SELECT COUNT(DISTINCT user_id) + 1 as rank FROM mock_sessions
        WHERE is_completed = 1 AND user_id != ? AND score >= COALESCE(
@@ -40,13 +40,13 @@ function getStats(userId: number) {
     .get(userId, userId) as { rank: number };
 
   return {
-    studyStreak: streak.days,
-    totalMocksTaken: mocks.total,
-    avgAccuracy: Math.round((mocks.avgAcc || 0) * 100) / 100,
-    totalQuizzesCompleted: quizzes.total,
-    quizScore: quizzes.score,
-    totalStudyTimeSeconds: studyTime.t,
-    rank: rank.rank,
+    studyStreak: streak?.days || 0,
+    totalMocksTaken: mocks?.total || 0,
+    avgAccuracy: Math.round(((mocks?.avgAcc || 0) * 100)) / 100,
+    totalQuizzesCompleted: quizzes?.total || 0,
+    quizScore: quizzes?.score || 0,
+    totalStudyTimeSeconds: studyTime?.t || 0,
+    rank: rank?.rank || 0,
   };
 }
 
@@ -54,8 +54,8 @@ function getStats(userId: number) {
 router.get(
   '/me',
   asyncHandler(async (req, res) => {
-    const row = prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
-    const prefs = prep('SELECT * FROM user_preferences WHERE user_id = ?').get(req.user!.id) || {};
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
+    const prefs = await prep('SELECT * FROM user_preferences WHERE user_id = ?').get(req.user!.id) || {};
     ok(res, {
       user: {
         id: row.id,
@@ -103,8 +103,8 @@ router.put(
     if (fields.length === 0) throw new ApiError(400, 'Nothing to update', 'BAD_REQUEST');
     fields.push(`updated_at = datetime('now')`);
     values.push(req.user!.id);
-    prep(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-    const row = prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
+    await prep(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values);
+    const row = await prep('SELECT * FROM users WHERE id = ?').get(req.user!.id);
     ok(res, { user: row });
   })
 );
@@ -121,7 +121,7 @@ router.put(
     })
   ),
   asyncHandler(async (req, res) => {
-    const current = prep('SELECT * FROM user_preferences WHERE user_id = ?').get(req.user!.id);
+    const current = await prep('SELECT * FROM user_preferences WHERE user_id = ?').get(req.user!.id);
     const merged = {
       language: req.body.language ?? current?.language ?? 'en',
       theme: req.body.theme ?? current?.theme ?? 'light',
@@ -143,8 +143,8 @@ router.put(
 router.get(
   '/me/stats',
   asyncHandler(async (req, res) => {
-    const stats = getStats(req.user!.id);
-    const recentMocks = db
+    const stats = await getStats(req.user!.id);
+    const recentMocks = await db
       .prepare(
         `SELECT ms.id, ms.score, ms.total_marks, ms.accuracy, ms.created_at, ms.ranking, mt.title, mt.exam
          FROM mock_sessions ms JOIN mock_tests mt ON mt.id = ms.test_id
@@ -152,21 +152,21 @@ router.get(
          ORDER BY ms.created_at DESC LIMIT 5`
       )
       .all(req.user!.id);
-    const weekly = db
+    const weekly = await db
       .prepare(
         `SELECT date, SUM(score) as score, SUM(total_questions) as total
          FROM quiz_attempts WHERE user_id = ? AND date >= date('now','-6 days')
          GROUP BY date ORDER BY date`
       )
       .all(req.user!.id);
-    const savedJobs = db
+    const savedJobs = await db
       .prepare(
         `SELECT j.id, j.org, j.role, j.last_date, j.status FROM saved_items si
          JOIN jobs j ON j.id = si.entity_id
          WHERE si.user_id = ? AND si.entity_type = 'job' ORDER BY si.created_at DESC LIMIT 5`
       )
       .all(req.user!.id);
-    const upcomingExams = db
+    const upcomingExams = await db
       .prepare(
         `SELECT id, org, role, last_date FROM jobs
          WHERE last_date >= date('now') AND status != 'Expired'
@@ -181,7 +181,7 @@ router.get(
 router.get(
   '/me/bookmarks',
   asyncHandler(async (req, res) => {
-    const saved = prep(
+    const saved = await prep(
       `SELECT entity_type, entity_id, created_at FROM saved_items WHERE user_id = ? ORDER BY created_at DESC`
     ).all(req.user!.id) as { entity_type: string; entity_id: number; created_at: string }[];
 
@@ -190,13 +190,13 @@ router.get(
     const videos = saved.filter((s) => s.entity_type === 'video');
 
     const jobRows = jobs.length
-      ? prep(`SELECT id, org, role, last_date, status FROM jobs WHERE id IN (${jobs.map(() => '?').join(',')})`).all(...jobs.map((j) => j.entity_id))
+      ? await prep(`SELECT id, org, role, last_date, status FROM jobs WHERE id IN (${jobs.map(() => '?').join(',')})`).all(...jobs.map((j) => j.entity_id))
       : [];
     const materialRows = materials.length
-      ? prep(`SELECT id, title, exam, category_id FROM materials WHERE id IN (${materials.map(() => '?').join(',')})`).all(...materials.map((m) => m.entity_id))
+      ? await prep(`SELECT id, title, exam, category_id FROM materials WHERE id IN (${materials.map(() => '?').join(',')})`).all(...materials.map((m) => m.entity_id))
       : [];
     const videoRows = videos.length
-      ? prep(`SELECT id, title, educator, duration, thumbnail_color FROM videos WHERE id IN (${videos.map(() => '?').join(',')})`).all(...videos.map((v) => v.entity_id))
+      ? await prep(`SELECT id, title, educator, duration, thumbnail_color FROM videos WHERE id IN (${videos.map(() => '?').join(',')})`).all(...videos.map((v) => v.entity_id))
       : [];
 
     ok(res, {
@@ -212,7 +212,7 @@ router.get(
 router.get(
   '/me/achievements',
   asyncHandler(async (req, res) => {
-    const s = getStats(req.user!.id);
+    const s = await getStats(req.user!.id);
     const achievements = [
       { id: 'first_mock', title: 'First Mock Test', description: 'Completed your first mock test', earned: s.totalMocksTaken >= 1, icon: 'target' },
       { id: 'mock_5', title: 'Practice Regular', description: 'Completed 5 mock tests', earned: s.totalMocksTaken >= 5, icon: 'zap' },
@@ -243,10 +243,10 @@ router.put(
   validate(z.object({ role: z.enum(['user', 'admin', 'superadmin']).optional(), isPremium: z.boolean().optional() })),
   asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
-    const existing = prep('SELECT id FROM users WHERE id = ?').get(id);
+    const existing = await prep('SELECT id FROM users WHERE id = ?').get(id);
     if (!existing) throw new ApiError(404, 'User not found', 'NOT_FOUND');
-    if (req.body.role) prep(`UPDATE users SET role = ? WHERE id = ?`).run(req.body.role, id);
-    if (req.body.isPremium !== undefined) prep(`UPDATE users SET is_premium = ? WHERE id = ?`).run(req.body.isPremium ? 1 : 0, id);
+    if (req.body.role) await prep(`UPDATE users SET role = ? WHERE id = ?`).run(req.body.role, id);
+    if (req.body.isPremium !== undefined) await prep(`UPDATE users SET is_premium = ? WHERE id = ?`).run(req.body.isPremium ? 1 : 0, id);
     ok(res, { message: 'User updated' });
   })
 );
@@ -254,9 +254,10 @@ router.put(
 router.delete('/:id', requireAdmin, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   if (id === req.user!.id) throw new ApiError(400, 'You cannot delete your own account', 'BAD_REQUEST');
-  const info = prep('DELETE FROM users WHERE id = ?').run(id);
+  const info = await prep('DELETE FROM users WHERE id = ?').run(id);
   if (info.changes === 0) throw new ApiError(404, 'User not found', 'NOT_FOUND');
   ok(res, { message: 'User deleted' });
 }));
 
 export default router;
+

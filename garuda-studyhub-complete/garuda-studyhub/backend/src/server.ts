@@ -1,6 +1,6 @@
 import app from './app';
 import { env } from './config/env';
-import { db } from './db/database';
+import { db } from './db/database.pool';
 import { ensureDefaultUsers, seedIfEmpty } from './db/bootstrap';
 
 async function start() {
@@ -8,22 +8,23 @@ async function start() {
   const host = process.env.NODE_ENV === 'production' || process.env.RENDER ? '0.0.0.0' : (process.env.HOST || '0.0.0.0');
 
   const server = app.listen(port, host, () => {
-    const getCount = (table: string) => {
-      try {
-        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as { c?: number } | undefined;
-        return Number(row?.c ?? 0);
-      } catch {
-        return 0;
-      }
-    };
-
-    const users = getCount('users');
-    const jobs = getCount('jobs');
     console.log(`\n🦅 Garuda AI StudyHub API`);
     console.log(`   └─ http://localhost:${port}/api/health`);
-    console.log(`   └─ Database: MySQL (${users} users · ${jobs} jobs)`);
     console.log(`   └─ Admin login: admin@garuda.ai / Admin@123`);
     console.log(`   └─ AI mode: ${env.openaiApiKey ? 'OpenAI (' + env.openaiModel + ')' : 'offline engine (no API key needed)'}\n`);
+
+    // Log database counts asynchronously
+    (async () => {
+      try {
+        const usersRow = await db.prepare('SELECT COUNT(*) as c FROM users').get() as { c?: number } | undefined;
+        const jobsRow = await db.prepare('SELECT COUNT(*) as c FROM jobs').get() as { c?: number } | undefined;
+        const users = Number(usersRow?.c ?? 0);
+        const jobs = Number(jobsRow?.c ?? 0);
+        console.log(`   └─ Database: MySQL (${users} users · ${jobs} jobs)`);
+      } catch (err) {
+        console.warn('   └─ Database count failed:', err);
+      }
+    })();
   });
 
   server.on('error', (err: NodeJS.ErrnoException) => {

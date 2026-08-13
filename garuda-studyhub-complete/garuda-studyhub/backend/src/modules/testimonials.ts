@@ -1,6 +1,6 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { z } from 'zod';
-import { prep } from '../db/database';
+import { prep } from '../db/database.pool';
 import { validate } from '../middleware';
 import { asyncHandler, ok } from '../utils/helpers';
 
@@ -26,7 +26,7 @@ function mapTestimonial(row: any) {
 }
 
 router.get('/', asyncHandler(async (_req, res) => {
-  const rows = prep(
+  const rows = await prep(
     `SELECT id, name, rating, feedback, exam_details, status, created_at
      FROM testimonials
      WHERE status = 'approved'
@@ -41,19 +41,20 @@ router.post(
   validate(createSchema),
   asyncHandler(async (req, res) => {
     const { name, rating, feedback, examDetails } = req.body;
-    const info = prep(
+    const info = await prep(
       `INSERT INTO testimonials (name, rating, feedback, exam_details, status)
        VALUES (?, ?, ?, ?, 'approved')`
     ).run(name.trim(), Number(rating), feedback.trim(), examDetails?.trim() || null);
 
-    const row = prep(
+    const row = await prep(
       `SELECT id, name, rating, feedback, exam_details, status, created_at
        FROM testimonials
        WHERE id = ?`
-    ).get(info.lastInsertRowid);
+    ).get(info.lastInsertRowid || (info.insertId ?? 0));
 
     ok(res, { testimonial: mapTestimonial(row) }, 201);
   })
 );
 
 export default router;
+

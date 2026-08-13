@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'node:crypto';
 import { env } from '../config/env';
-import { db, prep } from '../db/database';
+import { db, prep } from '../db/database.pool';
 import { ApiError } from '../utils/helpers';
 
 export interface AuthUser {
@@ -39,37 +39,39 @@ export function hashToken(token: string): string {
   return crypto.createHash('sha256').update(token).digest('hex');
 }
 
-export function storeRefreshToken(userId: number, token: string): void {
+export async function storeRefreshToken(userId: number, token: string): Promise<void> {
   // crypto imported at top
   const decoded = jwt.decode(token) as { exp?: number } | null;
   const toMysqlDateTime = (input: Date) => input.toISOString().slice(0, 19).replace('T', ' ');
   const expiresAt = decoded?.exp
     ? toMysqlDateTime(new Date(decoded.exp * 1000))
     : toMysqlDateTime(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000));
-  prep('DELETE FROM refresh_tokens WHERE user_id = ? AND expires_at < ?').run(
+  // remove old expired tokens for this user
+  await prep('DELETE FROM refresh_tokens WHERE user_id = ? AND expires_at < ?').run(
     userId,
     toMysqlDateTime(new Date())
   );
-  prep('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(
+  // insert the new refresh token
+  await prep('INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)').run(
     userId,
     hashToken(token),
     expiresAt
   );
 }
 
-export function revokeRefreshToken(token: string): void {
-  prep('DELETE FROM refresh_tokens WHERE token_hash = ?').run(hashToken(token));
+export async function revokeRefreshToken(token: string): Promise<void> {
+  await prep('DELETE FROM refresh_tokens WHERE token_hash = ?').run(hashToken(token));
 }
 
 /** JWT auth middleware — requires a valid Bearer access token */
-export function requireAuth(req: Request, _res: Response, next: NextFunction) {
+export async function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return next(new ApiError(401, 'Authentication required', 'UNAUTHORIZED'));
 
   try {
     const payload = jwt.verify(token, env.jwtAccessSecret) as AuthUser;
-    const user = prep('SELECT id, name, email, role, is_premium, is_verified FROM users WHERE id = ?').get(
+    const user = await prep('SELECT id, name, email, role, is_premium, is_verified FROM users WHERE id = ?').get(
       payload.id
     ) as
       | { id: number; name: string; email: string; role: string; is_premium: number; is_verified: number }
@@ -124,3 +126,4 @@ export function validate(schema: { parse: (v: unknown) => unknown }) {
     }
   };
 }
+

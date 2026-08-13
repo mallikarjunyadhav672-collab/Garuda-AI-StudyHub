@@ -6,7 +6,7 @@ import rateLimit from 'express-rate-limit';
 import path from 'node:path';
 import fs from 'node:fs';
 import { env } from './config/env';
-import { db } from './db/database';
+import { db } from './db/database.pool';
 import routes from './routes';
 import { errorHandler, notFound } from './middleware/error';
 

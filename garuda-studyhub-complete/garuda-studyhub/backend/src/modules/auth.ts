@@ -112,7 +112,7 @@ router.post(
     }
 
     const user = publicUser(row);
-    const token = issueToken(userId, 'verify');
+    const token = await issueToken(userId, 'verify');
     const verifyUrl = new URL(`/verify-email/${token}`, env.frontendUrls[0] || 'http://localhost:5173').toString();
 
     try {
@@ -174,7 +174,7 @@ router.post(
     const user = publicUser(row);
     const accessToken = signAccessToken(user);
     const refreshToken = signRefreshToken(user.id);
-    storeRefreshToken(user.id, refreshToken);
+    await storeRefreshToken(user.id, refreshToken);
  
     await prep(`UPDATE users SET updated_at = datetime('now') WHERE id = ?`).run(user.id);
     ok(res, { user, accessToken, refreshToken });
@@ -197,9 +197,9 @@ router.post(
     const user = publicUser(row);
     const accessToken = signAccessToken(user);
     // Rotation: revoke old, issue new
-    revokeRefreshToken(refreshToken);
+    await revokeRefreshToken(refreshToken);
     const newRefresh = signRefreshToken(user.id);
-    storeRefreshToken(user.id, newRefresh);
+    await storeRefreshToken(user.id, newRefresh);
 
     ok(res, { user, accessToken, refreshToken: newRefresh });
   })
@@ -210,7 +210,7 @@ router.post(
   '/logout',
   asyncHandler(async (req, res) => {
     const token = (req.body?.refreshToken as string) || '';
-    if (token) revokeRefreshToken(token);
+    if (token) await revokeRefreshToken(token);
     ok(res, { message: 'Logged out successfully' });
   })
 );
@@ -259,15 +259,15 @@ const transporter = env.emailHost && env.emailUser && env.emailPass
     })
   : null;
 
-function issueToken(userId: number, kind: 'reset' | 'verify'): string {
+async function issueToken(userId: number, kind: 'reset' | 'verify'): Promise<string> {
   const token = crypto.randomBytes(24).toString('hex');
   const ttlMinutes = kind === 'reset' ? env.resetTokenTtlMinutes : env.verifyTokenTtlMinutes;
   const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000)
     .toISOString()
     .slice(0, 19)
     .replace('T', ' ');
-  prep('DELETE FROM auth_tokens WHERE user_id = ? AND kind = ?').run(userId, kind);
-  prep(`INSERT INTO auth_tokens (user_id, token, kind, expires_at) VALUES (?, ?, ?, ?)`)
+  await prep('DELETE FROM auth_tokens WHERE user_id = ? AND kind = ?').run(userId, kind);
+  await prep(`INSERT INTO auth_tokens (user_id, token, kind, expires_at) VALUES (?, ?, ?, ?)`)
     .run(userId, crypto.createHash('sha256').update(token).digest('hex'), kind, expiresAt);
   return token;
 }
@@ -291,9 +291,9 @@ router.post(
   '/forgot-password',
   validate(z.object({ email: z.string().email() })),
   asyncHandler(async (req, res) => {
-    const row = prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(req.body.email.trim());
+    const row = await prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(req.body.email.trim());
     if (!row) throw new ApiError(404, 'No account found with this email', 'NOT_FOUND');
-    const token = issueToken(row.id, 'reset');
+    const token = await issueToken(row.id, 'reset');
     await sendEmail(row.email, 'Reset your Garuda StudyHub password', `Use code ${token} to reset your password.`);
     // In production, remove resetToken from the response (email only).
     ok(res, { message: 'If the account exists, a reset link/token has been sent.', resetToken: token });
@@ -306,14 +306,14 @@ router.post(
   validate(z.object({ token: z.string().min(10), newPassword: passwordSchema })),
   asyncHandler(async (req, res) => {
     const tokenHash = crypto.createHash('sha256').update(req.body.token).digest('hex');
-    const t = prep(
+    const t = await prep(
       `SELECT * FROM auth_tokens WHERE token = ? AND kind = 'reset' AND expires_at > datetime('now')`
     ).get(tokenHash);
     if (!t) throw new ApiError(400, 'Invalid or expired reset token', 'INVALID_TOKEN');
     const hash = await bcrypt.hash(req.body.newPassword, 12);
-    prep(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(hash, t.user_id);
-    prep(`DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'reset'`).run(t.user_id);
-    prep('DELETE FROM refresh_tokens WHERE user_id = ?').run(t.user_id);
+    await prep(`UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?`).run(hash, t.user_id);
+    await prep(`DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'reset'`).run(t.user_id);
+    await prep('DELETE FROM refresh_tokens WHERE user_id = ?').run(t.user_id);
     ok(res, { message: 'Password reset successfully. Please login.' });
   })
 );
@@ -321,12 +321,12 @@ router.post(
 // GET /api/auth/verify-email/:token
 router.get('/verify-email/:token', asyncHandler(async (req, res) => {
   const tokenHash = crypto.createHash('sha256').update(req.params.token).digest('hex');
-  const t = prep(
+  const t = await prep(
     `SELECT * FROM auth_tokens WHERE token = ? AND kind = 'verify' AND expires_at > datetime('now')`
   ).get(tokenHash);
   if (!t) throw new ApiError(400, 'Invalid or expired verification token', 'INVALID_TOKEN');
-  prep(`UPDATE users SET is_verified = 1, updated_at = datetime('now') WHERE id = ?`).run(t.user_id);
-  prep(`DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'verify'`).run(t.user_id);
+  await prep(`UPDATE users SET is_verified = 1, updated_at = datetime('now') WHERE id = ?`).run(t.user_id);
+  await prep(`DELETE FROM auth_tokens WHERE user_id = ? AND kind = 'verify'`).run(t.user_id);
   ok(res, { message: 'Email verified successfully. You can now login.' });
 }));
 
@@ -335,9 +335,9 @@ router.post(
   '/resend-verification',
   validate(z.object({ email: z.string().email() })),
   asyncHandler(async (req, res) => {
-    const row = prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(req.body.email.trim());
+    const row = await prep('SELECT * FROM users WHERE lower(email) = lower(?)').get(req.body.email.trim());
     if (!row || row.is_verified) return ok(res, { message: 'If the account is unverified, a new link has been sent.' });
-    const token = issueToken(row.id, 'verify');
+    const token = await issueToken(row.id, 'verify');
     const verifyUrl = new URL(`/verify-email/${token}`, env.frontendUrls[0] || 'http://localhost:5173').toString();
     await sendEmail(
       row.email,
@@ -351,3 +351,4 @@ router.post(
 );
 
 export default router;
+
